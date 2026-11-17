@@ -1132,7 +1132,7 @@ td.mono { white-space: nowrap; }
   function storeCode(c) { try { if (c) localStorage.setItem(PC_KEY, c); else localStorage.removeItem(PC_KEY); } catch (e) { /* private mode */ } }
   let sessionCode = storedCode();
   async function rest(path, opts = {}) {
-    const res = await fetch(API + path, { ...opts, headers: { apikey: KEY, Authorization: "Bearer " + KEY, "Content-Type": "application/json", ...(opts.headers || {}) } });
+    const res = await fetch(API + path, { ...opts, headers: { apikey: KEY, ...(/^eyJ/.test(KEY) ? { Authorization: "Bearer " + KEY } : {}), "Content-Type": "application/json", ...(opts.headers || {}) } });
     if (!res.ok) { let msg = ""; try { msg = (await res.json()).message || ""; } catch (e) { /* no body */ } const err = new Error(msg || res.statusText); err.code = /wrong passcode/i.test(msg) ? "bad_passcode" : res.status === 0 ? "unavailable" : "server"; throw err; }
     const t = await res.text(); return t ? JSON.parse(t) : null;
   }
