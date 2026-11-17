@@ -547,13 +547,14 @@ td.mono { white-space: nowrap; }
     const today = new Date(); const iso = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
     const d = defaults || {};
     draft = { form: true, seq: nextSeq(), date: iso, noOverride: "", job: d.job || "P1641", project: d.project || "XAI SPAM",
-      shippedBy: d.shippedBy || "", email: d.email || "", carrier: d.carrier || "", departure: d.departure || "8850 Lake View Dr, Walls, MS",
+      shippedBy: d.shippedBy || "", email: DEFAULT_EMAIL, carrier: d.carrier || "", departure: d.departure || "8850 Lake View Dr, Walls, MS",
       addr: d.addr || "8790 Tulane Dr, Southaven, MS", dest: "", shipDesc: "PIECE(S) - PER MATERIAL LIST BELOW", notes: "", dup: "keep",
       rows: Array.from({ length: 8 }, blankRow) };
     showSheet(); renderSheet();
   }
   let defaults = null;
   const SHIPPERS = ["Justin Carter", "Wiley Boothe", "Jahseem Paul"];
+  const DEFAULT_EMAIL = "jpaul@bechtindustrial.com";
   function blankRow() { return { matid: "", qty: "", desc: "", tag: "", dwg: "", wt: "" }; }
   function nextSeq() {
     let mx = 0;
