@@ -740,10 +740,21 @@ td.mono { white-space: nowrap; }
         const nd = { job: f.job, project: f.project, shippedBy: f.shippedBy, email: f.email, carrier: f.carrier, departure: f.departure, addr: f.addr };
         if (JSON.stringify(nd) !== JSON.stringify(defaults || {})) { try { await db.doc("settings/defaults").set(nd); defaults = nd; } catch (e) { /* defaults are a convenience */ } }
       } else { const c = imp.cands.find((x) => x.key === f.fromImport); if (c) { c.added = no; renderImport(); } }
-      toast(`${no} is in the tracker: ${body.items.length} line${body.items.length > 1 ? "s" : ""}.`, 3500);
-      isNew = false; editing = false; draft = null;
-      const local = enrich(id, body); byId.set(id, local); cur = local; renderSheet();
-      $("nextBtn").hidden = !!f.fromImport;
+      const local = enrich(id, body);
+      manifests = manifests.filter((m) => m.id !== id).concat(local); byId.set(id, local); renderAll();
+      if (!f.fromImport) {
+        // straight on to a fresh form with the next number; keep who/where from this one
+        const keep = { job: f.job, project: f.project, shippedBy: f.shippedBy, email: f.email, carrier: f.carrier, departure: f.departure, addr: f.addr };
+        newManifest();
+        Object.assign(draft, keep, { dest: "" });
+        renderSheet();
+        toast(`${no} is in the tracker (${body.items.length} line${body.items.length > 1 ? "s" : ""}). Next up: ${formNo(draft)}`, 4500);
+        $("sheetBody").scrollTop = 0;
+      } else {
+        toast(`${no} is in the tracker: ${body.items.length} line${body.items.length > 1 ? "s" : ""}.`, 3500);
+        isNew = false; editing = false; draft = null; cur = local; renderSheet();
+        $("nextBtn").hidden = true;
+      }
     } catch (e) { handleWriteErr(e); } finally { $("saveBtn").disabled = !canWrite; }
   }
   function readDraft() {
