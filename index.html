@@ -553,6 +553,7 @@ td.mono { white-space: nowrap; }
     showSheet(); renderSheet();
   }
   let defaults = null;
+  const SHIPPERS = ["Justin Carter", "Wiley Boothe", "Jahseem Paul"];
   function blankRow() { return { matid: "", qty: "", desc: "", tag: "", dwg: "", wt: "" }; }
   function nextSeq() {
     let mx = 0;
@@ -646,7 +647,7 @@ td.mono { white-space: nowrap; }
         <div class="field"><label for="ff-job">Job no.</label>${inp("ff-job", f.job)}</div>
         <div class="field"><label for="ff-project">Project</label>${inp("ff-project", f.project)}</div>
         <div class="field"><label for="ff-date">Date shipped</label>${inp("ff-date", f.date, 'type="date"')}</div>
-        <div class="field"><label for="ff-shippedBy">Shipped by</label>${inp("ff-shippedBy", f.shippedBy)}</div>
+        <div class="field"><label for="ff-shippedBy">Shipped by</label><select id="ff-shippedBy">${["", ...SHIPPERS, ...(f.shippedBy && !SHIPPERS.includes(f.shippedBy) ? [f.shippedBy] : [])].map((n) => `<option value="${esc(n)}"${n === f.shippedBy ? " selected" : ""}>${n ? esc(n) : "Choose…"}</option>`).join("")}</select></div>
         <div class="field"><label for="ff-email">Email</label>${inp("ff-email", f.email, 'type="email"')}</div>
         <div class="field"><label for="ff-carrier">Carrier / truck</label>${inp("ff-carrier", f.carrier)}</div>
         <div class="field wide"><label for="ff-departure">Departure</label>${inp("ff-departure", f.departure)}</div>
@@ -701,6 +702,7 @@ td.mono { white-space: nowrap; }
     const lines = f.rows.filter(rowHas);
     if (!f.date) return { err: "Fill in Date shipped.", field: "ff-date" };
     if (!lines.length) return { err: "Add at least one line under 2. Materials." };
+    if (!f.fromImport && !String(f.shippedBy || "").trim()) return { err: "Choose who shipped it.", field: "ff-shippedBy" };
     const dest = (f.dest || matchDest(f.addr) || "").trim();
     if (!dest) return { err: "Pick a destination for the tracker.", field: "ff-dest" };
     const existing = manifests.filter((m) => m.no.toLowerCase() === no.toLowerCase());
