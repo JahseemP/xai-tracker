@@ -691,8 +691,8 @@ td.mono { white-space: nowrap; }
         <div class="field"><label for="ff-shippedBy">Shipped by</label><select id="ff-shippedBy">${["", ...SHIPPERS, ...(f.shippedBy && !SHIPPERS.includes(f.shippedBy) ? [f.shippedBy] : [])].map((n) => `<option value="${esc(n)}"${n === f.shippedBy ? " selected" : ""}>${n ? esc(n) : "Choose…"}</option>`).join("")}</select></div>
         <div class="field"><label for="ff-email">Email</label>${inp("ff-email", f.email, 'type="email"')}</div>
         <div class="field"><label for="ff-carrier">Carrier / truck</label>${inp("ff-carrier", f.carrier)}</div>
-        <div class="field wide"><label for="ff-departure">Departure</label>${inp("ff-departure", f.departure)}</div>
-        <div class="field wide"><label for="ff-addr">Destination address</label>${inp("ff-addr", f.addr, 'list="addrOpts"')}<datalist id="addrOpts">${addrs.map((a) => `<option value="${esc(a)}">`).join("")}</datalist></div>
+        <div class="field wide"><label for="ff-departure">Departure</label>${addrPicker("ff-departure", f.departure, f.departureNew)}</div>
+        <div class="field wide"><label for="ff-addr">Destination address</label>${addrPicker("ff-addr", f.addr, f.addrNew)}</div>
         <div class="field"><label for="ff-dest">Destination (for the tracker)</label>${inp("ff-dest", f.dest || auto, 'list="destOpts2"')}<datalist id="destOpts2">${destList().map((d) => `<option value="${esc(d)}">`).join("")}</datalist><span class="matched">${auto ? "Matched from the address" : "Pick or type a city, like Southaven, MS"}</span></div>
         <div class="field"><label for="ff-other">Manifest no. override</label>${inp("ff-other", f.noOverride, 'placeholder="Leave blank to use the number above"')}</div>
       </div>
@@ -722,6 +722,26 @@ td.mono { white-space: nowrap; }
       <p class="hint">Piece marks typed in Description (B-4003-03, P-8014) go into the tracker as piece numbers. Weights are line totals, like on the paper form. Shipped by, email, carrier, departure and address are remembered for next time.</p>
     </div>`;
   }
+  function knownAddresses() {
+    const count = new Map(), label = new Map();
+    const norm = (a) => String(a || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const add = (a, w = 1) => { a = String(a || "").replace(/\s*\n\s*/g, ", ").replace(/\s+/g, " ").trim(); if (!a || a.length < 5) return; const k = norm(a); count.set(k, (count.get(k) || 0) + w); if (!label.has(k)) label.set(k, a); };
+    manifests.forEach((m) => { add(m.addr); if (m.raw) add(m.raw.departure); });
+    if (defaults) { add(defaults.addr); add(defaults.departure); }
+    add("8850 Lake View Dr, Walls, MS"); add("8790 Tulane Dr, Southaven, MS");
+    return [...count.keys()].sort((a, b) => count.get(b) - count.get(a) || label.get(a).localeCompare(label.get(b))).map((k) => label.get(k));
+  }
+  function addrPicker(id, value, isNew) {
+    const list = knownAddresses();
+    const has = value && list.some((a) => a.toLowerCase() === String(value).toLowerCase());
+    const opts = [...(value && !has && !isNew ? [value] : []), ...list];
+    return `<select id="${id}-sel" data-addr="${id}">
+        <option value=""${!value && !isNew ? " selected" : ""}>Choose an address…</option>
+        ${opts.map((a) => `<option value="${esc(a)}"${!isNew && String(a).toLowerCase() === String(value || "").toLowerCase() ? " selected" : ""}>${esc(a)}</option>`).join("")}
+        <option value="__new"${isNew ? " selected" : ""}>+ New address…</option>
+      </select>
+      <input id="${id}" value="${esc(value)}" placeholder="Street, City, ST ZIP" ${isNew ? "" : "hidden"} aria-label="New address">`;
+  }
   function rowHas(r) { return !!(String(r.matid).trim() || String(r.desc).trim() || String(r.tag).trim() || String(r.wt).trim()); }
   function readForm() {
     const f = draft, v = (id) => ($(id) ? $(id).value : "");
@@ -729,6 +749,7 @@ td.mono { white-space: nowrap; }
       shippedBy: v("ff-shippedBy"), email: v("ff-email"), carrier: v("ff-carrier"), departure: v("ff-departure"),
       addr: v("ff-addr"), dest: v("ff-dest"), noOverride: v("ff-other"), shipDesc: v("ff-shipDesc"), notes: v("ff-notes") });
     const dup = document.querySelector('input[name="dup"]:checked'); if (dup) f.dup = dup.value;
+    ["ff-addr", "ff-departure"].forEach((id) => { const sel = $(id + "-sel"); if (!sel) return; const isNew = sel.value === "__new"; const val = isNew ? $(id).value : sel.value; if (id === "ff-addr") { f.addr = val; f.addrNew = isNew; } else { f.departure = val; f.departureNew = isNew; } });
     document.querySelectorAll("#ffRows tr").forEach((tr) => { const r = f.rows[+tr.dataset.i]; tr.querySelectorAll("input").forEach((inp) => (r[inp.dataset.f] = inp.value)); });
   }
   function refreshFormTotals() {
@@ -1212,8 +1233,17 @@ td.mono { white-space: nowrap; }
   $("sheetBody").addEventListener("input", (e) => { if (draft && draft.form && e.target.closest("input") && e.target.type !== "radio") refreshFormTotals(); });
   $("sheetBody").addEventListener("change", (e) => {
     if (!(draft && draft.form)) return;
+    if (e.target.dataset && e.target.dataset.addr) {
+      const id = e.target.dataset.addr, isNew = e.target.value === "__new";
+      readForm();
+      if (id === "ff-addr") { if (isNew) draft.addr = ""; const m = matchDest(draft.addr); draft.dest = m || (isNew ? "" : draft.dest); }
+      else if (isNew) draft.departure = "";
+      renderForm();
+      if (isNew) $(id).focus();
+      return;
+    }
     if (["ff-addr", "ff-date", "ff-seq", "ff-other"].includes(e.target.id) || e.target.name === "dup") {
-      if (e.target.id === "ff-addr") { const m = matchDest(e.target.value); if (m) $("ff-dest").value = m; }
+      if (e.target.id === "ff-addr") { const m = matchDest(e.target.value); if (m) { $("ff-dest").value = m; draft.dest = m; } }
       readForm(); renderForm();
     }
   });
