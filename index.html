@@ -183,6 +183,41 @@ td.mono { white-space: nowrap; }
 .pcdlg h2 { margin: 0; font-family: var(--font-display); text-transform: uppercase; font-size: 20px; }
 .pcdlg input { border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 9px 10px; font-size: 16px; }
 .pcerr { color: var(--warn); font-size: 13px; min-height: 1em; }
+#printArea { display: none; }
+@media print {
+  @page { size: letter; margin: 0.4in; }
+  body { background: #fff !important; }
+  body > *:not(#printArea) { display: none !important; }
+  #printArea { display: block !important; color: #000; font-family: Arial, Helvetica, sans-serif; font-size: 9pt; }
+}
+.bol { color: #000; font-family: Arial, Helvetica, sans-serif; font-size: 9pt; }
+.bol .top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12pt; }
+.bol .co { display: flex; gap: 10pt; align-items: center; }
+.bol .co img { width: 70pt; height: auto; }
+.bol .co b { font-size: 10.5pt; color: #1b3a5c; }
+.bol .co div { line-height: 1.35; }
+.bol .ttl { text-align: right; }
+.bol .ttl .no { font-size: 13pt; font-weight: 700; color: #1b3a5c; }
+.bol .ttl .m { font-size: 12pt; font-weight: 700; color: #1b3a5c; margin-top: 4pt; }
+.bol .ttl .s { font-size: 6.5pt; font-weight: 700; color: #1b3a5c; margin-top: 6pt; }
+.bol h4 { font-size: 8.5pt; color: #1b3a5c; margin: 10pt 0 4pt; text-transform: uppercase; }
+.bol th { position: static; color: #000; letter-spacing: 0; }
+.bol .sig:last-child { margin-bottom: 0; }
+.bol table { width: 100%; border-collapse: collapse; }
+.bol td, .bol th { border: 0.75pt solid #9aa7b5; padding: 3.5pt 5pt; vertical-align: top; text-align: left; font-size: 8.5pt; }
+.bol .det td.l { background: #dfe7f1; font-weight: 700; width: 17%; }
+.bol .det td.v { width: 33%; }
+.bol .desc { border: 0.75pt solid #9aa7b5; padding: 5pt; min-height: 22pt; font-size: 8.5pt; }
+.bol .mat th { background: #dfe7f1; font-size: 7.5pt; text-align: center; }
+.bol .mat td { height: 10pt; padding-top: 2pt; padding-bottom: 2pt; }
+.bol .mat td.c { text-align: center; }
+.bol .mat td.r { text-align: right; }
+.bol .tot td { border: 0; }
+.bol .tot td.tl { text-align: right; font-weight: 700; font-size: 7.5pt; border: 0.75pt solid #9aa7b5; background: #dfe7f1; }
+.bol .tot td.tv { border: 0.75pt solid #9aa7b5; text-align: right; }
+.bol .fine { font-style: italic; font-size: 7pt; margin: 6pt 0 20pt; }
+.bol .sig { display: grid; grid-template-columns: 2fr 2fr 1fr; gap: 0 14pt; margin-bottom: 22pt; break-inside: avoid; }
+.bol .sig div { border-top: 0.75pt solid #000; padding-top: 3pt; font-size: 6.5pt; font-weight: 700; }
 .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 6px; z-index: 20; display: none; max-width: 90vw; }
 .toast.show { display: block; }
 .confirm { display: none; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -328,6 +363,7 @@ td.mono { white-space: nowrap; }
       <div class="confirm" id="delConfirm"><span>Delete this manifest?</span><button class="btn small danger" id="delYes" type="button">Yes, delete</button><button class="btn small" id="delNo" type="button">Keep</button></div>
     </div>
     <div class="actions">
+      <button class="btn" id="printBtn" type="button">Print</button>
       <button class="btn" id="nextBtn" type="button" hidden>Start next manifest</button>
       <button class="btn" id="editBtn" type="button">Edit</button>
       <button class="btn" id="cancelBtn" type="button" hidden>Cancel</button>
@@ -343,6 +379,7 @@ td.mono { white-space: nowrap; }
   <div class="pcerr" id="pcErr" role="alert"></div>
   <div class="actions" style="justify-content:flex-end"><button class="btn" id="pcCancel" type="button">Cancel</button><button class="btn primary" id="pcOk" type="button">Unlock</button></div>
 </div>
+<div id="printArea" aria-hidden="true"></div>
 <div class="toast" id="toast" role="status"></div>
 
 <script>
@@ -697,6 +734,60 @@ td.mono { white-space: nowrap; }
     const totQty = draft.rows.reduce((s, r) => s + (rowHas(r) ? (parseFloat(r.qty) || 1) : 0), 0);
     $("ffWt").textContent = `${fmt(totWt, totWt % 1 ? 2 : 0)} lbs`; $("ffQty").textContent = fmt(totQty);
     $("ff-no").textContent = formNo(draft); $("sheetTitle").textContent = formNo(draft);
+  }
+  function bolHtml(m) {
+    const lines = m.lines.slice();
+    const n = Math.max(16, lines.length);
+    while (lines.length < n) lines.push(null);
+    const totQty = m.lines.reduce((s, r) => s + (parseFloat(r.qty) || 0), 0);
+    const totWt = m.lines.reduce((s, r) => s + (parseFloat(r.wt) || 0), 0);
+    let desc = String(m.shipDesc || "PIECE(S) - PER MATERIAL LIST BELOW").trim();
+    if (/^PIECE\(S\)/i.test(desc)) desc = `${fmt(totQty)} ${desc}`;
+    if (m.notes) desc += ` (${m.notes})`;
+    const ml = (t) => esc(t || "").replace(/,(?!\s*(?:[A-Z]{2}\b|\d{5}))\s*/g, "<br>");
+    return `<div class="bol">
+      <div class="top"><div class="co"><img src="logo.png" alt=""><div><b>SONS OF LIBERTY CONSTRUCTION, INC.</b><br>1337 W 43rd St, Unit #1182<br>Houston, TX 77018</div></div>
+        <div class="ttl"><div class="no">${esc(m.no)}</div><div class="m">MANIFEST</div><div class="s">BILL OF LADING / MANIFEST</div></div></div>
+      <h4>Manifest details</h4>
+      <table class="det">
+        <tr><td class="l">Manifest No.</td><td class="v">${esc(m.no)}</td><td class="l">Shipped By</td><td class="v">${esc(m.shippedBy)}</td></tr>
+        <tr><td class="l">Job No.</td><td class="v">${esc(m.job)}</td><td class="l">Email</td><td class="v">${esc(m.email)}</td></tr>
+        <tr><td class="l">Project</td><td class="v">${esc(m.project)}</td><td class="l">Carrier / Truck</td><td class="v">${esc(m.carrier)}</td></tr>
+        <tr><td class="l" rowspan="2" style="vertical-align:middle">Date Shipped</td><td class="v" rowspan="2" style="vertical-align:middle">${m.date ? fmtDate(m.date) : ""}</td><td class="l">Departure</td><td class="v">${ml(m.departure)}</td></tr>
+        <tr><td class="l">Destination</td><td class="v">${ml(m.addr)}</td></tr>
+      </table>
+      <h4>1. Description of shipment</h4>
+      <div class="desc">${esc(desc)}</div>
+      <h4>2. Materials</h4>
+      <table class="mat"><thead><tr><th style="width:5%">#</th><th style="width:15%">Material ID</th><th style="width:6%">Qty</th><th>Description</th><th style="width:11%">Tag No.</th><th style="width:10%">DWG No.</th><th style="width:12%">Weight (lbs)</th></tr></thead><tbody>
+        ${lines.map((r, i) => `<tr><td class="c">${i + 1}</td><td>${r ? esc(r.matid) : ""}</td><td class="c">${r && r.qty !== "" && r.qty != null ? esc(r.qty) : ""}</td><td>${r ? esc(r.desc) : ""}</td><td>${r ? esc(r.tag) : ""}</td><td>${r ? esc(r.dwg) : ""}</td><td class="r">${r && r.wt !== "" && r.wt != null && !isNaN(parseFloat(r.wt)) ? fmt(parseFloat(r.wt), parseFloat(r.wt) % 1 ? 2 : 0) : ""}</td></tr>`).join("")}
+      </tbody></table>
+      <table class="tot"><tr><td></td><td class="tl" style="width:22%">TOTAL WEIGHT (LBS)</td><td class="tv" style="width:12%">${totWt ? fmt(totWt, totWt % 1 ? 2 : 0) : ""}</td></tr></table>
+      <div class="fine">All goods listed herein are accurately declared, properly packaged, and secured in accordance with applicable handling and transportation requirements.</div>
+      <div class="sig"><div>DRIVER NAME (PRINT)</div><div>DRIVER SIGNATURE</div><div>DATE</div></div>
+      <div class="sig"><div>RECEIVED BY (PRINT)</div><div>RECEIVER SIGNATURE</div><div>DATE</div></div>
+    </div>`;
+  }
+  function printData() {
+    if (editing && draft && draft.form) {
+      readForm();
+      const f = draft;
+      return { no: formNo(f), job: f.job, project: f.project, date: f.date, shippedBy: f.shippedBy, email: f.email, carrier: f.carrier, departure: f.departure, addr: f.addr, shipDesc: f.shipDesc, notes: f.notes,
+        lines: f.rows.filter(rowHas).map((r) => ({ matid: r.matid, qty: r.qty === "" ? "1" : r.qty, desc: [r.piece, r.desc].filter(Boolean).join(" ") + (r.pc && !/ of 1$/.test(r.pc) ? ` (PC ${r.pc.toUpperCase()})` : ""), tag: r.tag, dwg: r.dwg, wt: r.wt })) };
+    }
+    const m = editing && draft ? { ...cur, ...draft } : cur; if (!m) return null;
+    const raw = (cur && cur.raw) || {};
+    return { no: m.no, job: raw.job || "P1641", project: raw.project || "XAI SPAM", date: m.date, shippedBy: raw.shippedBy || "", email: raw.email || "", carrier: raw.carrier || "", departure: raw.departure || "", addr: m.addr, shipDesc: "", notes: m.notes,
+      lines: m.items.map((it) => { const tag = (String(it.note || "").match(/Tag ([^;]+)/) || [])[1] || ""; const dwg = (String(it.note || "").match(/DWG ([^;]+)/) || [])[1] || "";
+        return { matid: it.matid, qty: String(it.qty), desc: [it.piece, it.desc].filter(Boolean).join(" ") + (it.pc && !/ of 1$/.test(it.pc) ? ` (PC ${String(it.pc).toUpperCase()})` : ""), tag, dwg, wt: it.wt == null ? "" : it.basis === "E" ? String(it.wt * (it.qty || 1)) : String(it.wt) }; }) };
+  }
+  function printManifest() {
+    const d = printData(); if (!d) return;
+    if (!d.lines.length) { toast("Add at least one line before printing."); return; }
+    $("printArea").innerHTML = bolHtml(d);
+    const img = $("printArea").querySelector("img");
+    const go = () => { try { window.print(); } catch (e) { toast("Printing isn't available here. Try Ctrl+P."); } };
+    if (img && !img.complete) { img.onload = go; img.onerror = go; } else go();
   }
   function buildDoc(f, dupMode) {
     let no = formNo(f);
@@ -1102,6 +1193,7 @@ td.mono { white-space: nowrap; }
   const openFrom = (e) => { const el = e.target.closest("[data-id]"); if (el && !e.target.closest(".xb")) openSheet(el.dataset.id); };
   ["logBody", "pieceOut", "flagsOut"].forEach((id) => { $(id).addEventListener("click", openFrom); $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") openFrom(e); }); });
   $("chart").addEventListener("click", (e) => { const r = e.target.closest("rect.bar"); if (!r) return; const d = r.dataset.date; state.q = ""; $("q").value = ""; state.tab = "log"; state.sortK = "date"; renderTab(); const row = [...document.querySelectorAll("#logBody tr.row")].find((tr) => byId.get(tr.dataset.id)?.date === d); if (row) { row.scrollIntoView({ block: "center" }); row.querySelector("td").animate?.([{ background: "var(--accent-soft)" }, { background: "transparent" }], 1400); } });
+  $("printBtn").addEventListener("click", printManifest);
   $("newBtn").addEventListener("click", () => { $("nextBtn").hidden = true; newManifest(); });
   $("nextBtn").addEventListener("click", () => { $("nextBtn").hidden = true; newManifest(); });
   $("exportBtn").addEventListener("click", exportXlsx);
