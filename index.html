@@ -58,6 +58,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .wrap { max-width: 1280px; margin: 0 auto; padding: 20px clamp(16px, 3vw, 32px) 48px; display: grid; gap: 18px; }
 
 header.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; border-bottom: 3px solid var(--ink); padding-bottom: 12px; }
+.brandrow { display: flex; align-items: center; gap: 14px; }
+.brandrow .logo { width: 76px; height: 76px; object-fit: contain; border-radius: 50%; background: #fff; padding: 2px; flex: none; }
+@media (max-width: 500px) { .brandrow .logo { width: 44px; height: 44px; } }
 .brand h1 { font-family: var(--font-display); font-weight: 700; font-size: 34px; letter-spacing: .02em; text-transform: uppercase; margin: 0; line-height: 1; text-wrap: balance; }
 .brand h1 span { color: var(--accent); }
 .brand .sub { color: var(--muted); font-size: 13px; margin-top: 4px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
@@ -266,7 +269,7 @@ td.mono { white-space: nowrap; }
 <div class="wrap">
   <header class="top">
     <div class="brand">
-      <h1>XAI SPAM <span>Shipment Tracker</span></h1>
+      <div class="brandrow"><img class="logo" src="logo.png" alt="Sons of Liberty Construction"><h1>XAI SPAM <span>Shipment Tracker</span></h1></div>
       <div class="sub">
         <span>Job LA-26-3335 / P1641</span>
         <span class="sync"><span class="dot" id="syncDot"></span><span id="syncText">Connecting…</span></span>
