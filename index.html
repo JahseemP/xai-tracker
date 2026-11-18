@@ -123,6 +123,8 @@ html, body { overflow-x: hidden; }
 .tabs button { border: 0; background: transparent; padding: 8px 14px; cursor: pointer; font-weight: 500; color: var(--muted); }
 .tabs button[aria-selected="true"] { background: var(--ink); color: var(--bg); }
 .search { flex: 1 1 260px; display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 0 10px; }
+.qclear { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 15px; padding: 4px 6px; }
+.qclear:hover { color: var(--ink); }
 .search input { border: 0; background: transparent; padding: 9px 0; width: 100%; outline: none; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 4px 10px; font-size: 12.5px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
@@ -334,7 +336,8 @@ td.who { white-space: nowrap; }
     </div>
     <label class="search" for="q">
       <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2"/></svg>
-      <input id="q" type="search" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search" placeholder="Search manifest no., piece mark (B-4003), shipped by, material ID…" autocomplete="off">
+      <input id="q" type="text" inputmode="search" role="searchbox" name="trk-find-nohist" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search" aria-label="Search" placeholder="Search manifest no., piece mark (B-4003), shipped by, material ID…">
+      <button type="button" id="qClear" class="qclear" aria-label="Clear search" hidden>✕</button>
     </label>
   </div>
   <div class="chips" id="destChips"></div>
@@ -1300,9 +1303,16 @@ td.who { white-space: nowrap; }
   }
 
   // ---------- events ----------
+  // never keep or restore old searches
+  const clearSearch = () => { const q = $("q"); $("qClear").hidden = true; if (q.value || state.q) { q.value = ""; state.q = ""; renderAll(); } };
+  $("qClear").addEventListener("click", () => { clearSearch(); $("q").focus(); });
+  clearSearch();
+  window.addEventListener("pageshow", clearSearch);
+  $("q").addEventListener("keydown", (e) => { if (e.key === "Escape") clearSearch(); });
   let qTimer;
   $("q").addEventListener("input", (e) => {
     state.q = e.target.value;
+    $("qClear").hidden = !state.q;
     clearTimeout(qTimer);
     qTimer = setTimeout(() => { renderTab(); renderKpis(); renderChart(); }, 180);
   });
