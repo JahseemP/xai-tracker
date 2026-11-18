@@ -84,11 +84,11 @@ header.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-cont
 .btn[disabled] { opacity: .5; cursor: not-allowed; }
 
 .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); overflow: hidden; }
-.kpi { padding: 14px 18px; border-right: 1px solid var(--line); }
+.kpi { padding: 7px 14px 8px; border-right: 1px solid var(--line); display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 10px; align-items: baseline; }
 .kpi:last-child { border-right: 0; }
-.kpi .lab { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
-.kpi .val { font-family: var(--font-display); font-size: 34px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
-.kpi .note { font-size: 12px; color: var(--muted); }
+.kpi .lab { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; grid-column: 1 / -1; }
+.kpi .val { font-family: var(--font-display); font-size: 22px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.kpi .note { font-size: 11px; color: var(--muted); line-height: 1.25; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kpi.attn .val { color: var(--accent-ink); }
 
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
