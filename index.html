@@ -408,7 +408,10 @@ td.who { white-space: nowrap; }
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const fmt = (n, d = 0) => (n == null || isNaN(n) ? "–" : Number(n).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }));
   const STATUSES = ["Shipped", "Received", "Issue"];
-  const DEST_ORDER = ["Southaven, MS", "Walls, MS", "Springdale, AR", "Houston, TX", "Porter, TX", "El Dorado, AR", "Birmingham, AL", "Memphis, TN", "CUP 4"];
+  const DEST_ORDER = ["Lakeview", "SPAM", "CUP4", "Walls, MS", "Springdale, AR", "Houston, TX", "Porter, TX", "El Dorado, AR", "Birmingham, AL", "Memphis, TN"];
+  // addresses that belong to a site name rather than a city
+  const DEST_ALIASES = [[/southaven/i, "Lakeview"], [/^\s*cup\s*4\s*$/i, "CUP4"]];
+  function siteFromNotes(dest, notes) { if (dest !== "Lakeview") return dest; if (/\bSPAM\b/i.test(notes || "")) return "SPAM"; if (/CUP\s*4/i.test(notes || "")) return "CUP4"; return dest; }
 
   let db = null, manifests = [], byId = new Map();
   let state = { tab: "log", q: "", dests: new Set(), sortK: "date", sortDir: -1 };
@@ -635,6 +638,8 @@ td.who { white-space: nowrap; }
     const squash = (t) => String(t || "").toLowerCase().replace(/[^a-z, ]/g, "").replace(/([a-z])\1+/g, "$1").replace(/\s*,\s*/g, ",").replace(/\s+/g, " ");
     const a = squash(addr);
     const known = [...new Set(DEST_ORDER.concat(destList()))];
+    const alias = DEST_ALIASES.find(([re]) => re.test(String(addr || "")));
+    if (alias) return alias[1];
     const hit = known.find((d) => a.includes(squash(d)));
     return hit || "";
   }
@@ -718,7 +723,7 @@ td.who { white-space: nowrap; }
         <div class="field"><label for="ff-carrier">Carrier / truck</label>${inp("ff-carrier", f.carrier)}</div>
         <div class="field wide"><label for="ff-departure">Departure</label>${addrPicker("ff-departure", f.departure, f.departureNew)}</div>
         <div class="field wide"><label for="ff-addr">Destination address</label>${addrPicker("ff-addr", f.addr, f.addrNew)}</div>
-        <div class="field"><label for="ff-dest">Destination (for the tracker)</label>${inp("ff-dest", f.dest || auto, 'list="destOpts2"')}<datalist id="destOpts2">${destList().map((d) => `<option value="${esc(d)}">`).join("")}</datalist><span class="matched">${auto ? "Matched from the address" : "Pick or type a city, like Southaven, MS"}</span></div>
+        <div class="field"><label for="ff-dest-sel">Destination (for the tracker)</label>${destPicker(f.dest || auto, f.destNew)}<span class="matched">${f.dest && f.dest !== auto ? "" : auto ? "Matched from the address" : "Pick where it's going"}</span></div>
         <div class="field"><label for="ff-other">Manifest no. override</label>${inp("ff-other", f.noOverride, 'placeholder="Leave blank to use the number above"')}</div>
       </div>
       ${exists ? `<div class="dupwarn"><strong>${esc(no)} is already in the tracker.</strong>
@@ -756,6 +761,13 @@ td.who { white-space: nowrap; }
     add("8850 Lake View Dr, Walls, MS"); add("8790 Tulane Dr, Southaven, MS");
     return [...count.keys()].sort((a, b) => count.get(b) - count.get(a) || label.get(a).localeCompare(label.get(b))).map((k) => label.get(k));
   }
+  function destPicker(value, isNew) {
+    const list = [...new Set(DEST_ORDER.concat(destList().filter((d) => d !== "Southaven, MS" && d !== "CUP 4")))];
+    const has = value && list.includes(value);
+    const opts = [...(value && !has && !isNew ? [value] : []), ...list];
+    return `<select id="ff-dest-sel" data-dest="1"><option value=""${!value && !isNew ? " selected" : ""}>Choose…</option>${opts.map((d) => `<option${!isNew && d === value ? " selected" : ""}>${esc(d)}</option>`).join("")}<option value="__new"${isNew ? " selected" : ""}>+ Other…</option></select>
+      <input id="ff-dest" value="${esc(value)}" placeholder="Site or City, ST" ${isNew ? "" : "hidden"} aria-label="Other destination">`;
+  }
   function addrPicker(id, value, isNew) {
     const list = knownAddresses();
     const has = value && list.some((a) => a.toLowerCase() === String(value).toLowerCase());
@@ -774,6 +786,7 @@ td.who { white-space: nowrap; }
       shippedBy: v("ff-shippedBy"), email: v("ff-email"), carrier: v("ff-carrier"), departure: v("ff-departure"),
       addr: v("ff-addr"), dest: v("ff-dest"), noOverride: v("ff-other"), shipDesc: v("ff-shipDesc"), notes: v("ff-notes") });
     const dup = document.querySelector('input[name="dup"]:checked'); if (dup) f.dup = dup.value;
+    const ds = $("ff-dest-sel"); if (ds) { f.destNew = ds.value === "__new"; f.dest = f.destNew ? $("ff-dest").value : ds.value; }
     ["ff-addr", "ff-departure"].forEach((id) => { const sel = $(id + "-sel"); if (!sel) return; const isNew = sel.value === "__new"; const val = isNew ? $(id).value : sel.value; if (id === "ff-addr") { f.addr = val; f.addrNew = isNew; } else { f.departure = val; f.departureNew = isNew; } });
     document.querySelectorAll("#ffRows tr").forEach((tr) => { const r = f.rows[+tr.dataset.i]; tr.querySelectorAll("input").forEach((inp) => (r[inp.dataset.f] = inp.value)); });
   }
@@ -1115,6 +1128,7 @@ td.who { white-space: nowrap; }
               cur.shipDesc = pg.lines.filter((l) => l.y > descY + 2 && (matY == null || l.y < matY - 2)).map((l) => l.text).join(" ").replace(/\s+/g, " ").trim();
               const paren = cur.shipDesc.match(/\(([^)]*[A-Za-z]{4}[^)]*)\)/g); if (paren) cur.notes = paren.map((x) => x.slice(1, -1)).filter((x) => !/^S$/i.test(x)).join("; ");
             }
+            cur.dest = siteFromNotes(cur.dest, `${cur.shipDesc} ${cur.notes}`);
             const h = findHeader(pg); if (h) hdr = h;
             if (h) cur.rows = parseRows(pg, h, h.y);
           } else if (cur) {
@@ -1278,18 +1292,21 @@ td.who { white-space: nowrap; }
   $("sheetBody").addEventListener("input", (e) => { if (draft && draft.form && e.target.closest("input") && e.target.type !== "radio") refreshFormTotals(); });
   $("sheetBody").addEventListener("change", (e) => {
     if (!(draft && draft.form)) return;
+    if (e.target.dataset && e.target.dataset.dest) { readForm(); if (draft.destNew) draft.dest = ""; renderForm(); if (draft.destNew) $("ff-dest").focus(); return; }
     if (e.target.dataset && e.target.dataset.addr) {
       const id = e.target.dataset.addr, isNew = e.target.value === "__new";
       readForm();
-      if (id === "ff-addr") { if (isNew) draft.addr = ""; const m = matchDest(draft.addr); draft.dest = m || (isNew ? "" : draft.dest); }
+      if (id === "ff-addr") { if (isNew) draft.addr = ""; const m = siteFromNotes(matchDest(draft.addr), draft.notes); draft.dest = m || (isNew ? "" : draft.dest); draft.destNew = false; }
       else if (isNew) draft.departure = "";
       renderForm();
       if (isNew) $(id).focus();
       return;
     }
+    if (e.target.id === "ff-notes") { readForm(); const m = siteFromNotes(draft.dest, draft.notes); if (m !== draft.dest) { draft.dest = m; renderForm(); } return; }
     if (["ff-addr", "ff-date", "ff-seq", "ff-other"].includes(e.target.id) || e.target.name === "dup") {
-      if (e.target.id === "ff-addr") { const m = matchDest(e.target.value); if (m) { $("ff-dest").value = m; draft.dest = m; } }
-      readForm(); renderForm();
+      readForm();
+      if (e.target.id === "ff-addr") { const m = siteFromNotes(matchDest(e.target.value), draft.notes); if (m) { draft.dest = m; draft.destNew = false; } }
+      renderForm();
     }
   });
   $("sheetBody").addEventListener("click", (e) => {
