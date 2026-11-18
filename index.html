@@ -128,6 +128,7 @@ tr.row:hover td { background: var(--accent-soft); }
 td.num, th.num { text-align: right; }
 .mono { font-family: var(--font-mono); font-size: 13px; }
 td.mono { white-space: nowrap; }
+td.who { white-space: nowrap; }
 .muted { color: var(--muted); }
 .destcell { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .destcell i { width: 4px; height: 18px; border-radius: 2px; display: inline-block; }
@@ -310,7 +311,7 @@ td.mono { white-space: nowrap; }
     </div>
     <label class="search" for="q">
       <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2"/></svg>
-      <input id="q" type="search" placeholder="Search manifest no., piece mark (B-4003), material ID, description…" autocomplete="off">
+      <input id="q" type="search" placeholder="Search manifest no., piece mark (B-4003), shipped by, material ID…" autocomplete="off">
     </label>
   </div>
   <div class="chips" id="destChips"></div>
@@ -321,6 +322,7 @@ td.mono { white-space: nowrap; }
         <thead><tr>
           <th class="sortable" data-k="date">Date shipped</th>
           <th class="sortable" data-k="no">Manifest no.</th>
+          <th class="sortable" data-k="shippedBy">Shipped by</th>
           <th class="sortable" data-k="dest">Destination</th>
           <th class="sortable num" data-k="lines">Lines</th>
           <th class="sortable num" data-k="qty">Pieces</th>
@@ -425,7 +427,7 @@ td.mono { white-space: nowrap; }
     const items = (Array.isArray(d.items) ? d.items : []).map(itemObj);
     let qty = 0, wt = 0, hasWt = false;
     items.forEach((it) => { qty += it.qty || 0; if (it.wt != null) { hasWt = true; wt += it.basis === "T" ? it.wt : it.wt * (it.qty || 1); } });
-    return { id, no: d.no || id, date: d.date || "", dest: d.dest || "", addr: d.addr || "", src: d.src || "", pages: d.pages || "", notes: d.notes || "", status: STATUSES.includes(d.status) ? d.status : "Shipped", recvDate: d.recvDate || "", items, raw: d, lines: items.length, qty, wt: hasWt ? wt : null };
+    return { id, no: d.no || id, date: d.date || "", dest: d.dest || "", addr: d.addr || "", src: d.src || "", pages: d.pages || "", notes: d.notes || "", status: STATUSES.includes(d.status) ? d.status : "Shipped", recvDate: d.recvDate || "", shippedBy: d.shippedBy || "", items, raw: d, lines: items.length, qty, wt: hasWt ? wt : null };
   }
   const destList = () => { const s = new Set(manifests.map((m) => m.dest).filter(Boolean)); return [...s].sort((a, b) => { const ia = DEST_ORDER.indexOf(a), ib = DEST_ORDER.indexOf(b); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b); }); };
   const palette = ["--c1", "--c2", "--c3", "--c4", "--c5", "--c6", "--c7", "--c8", "--c9"];
@@ -439,7 +441,7 @@ td.mono { white-space: nowrap; }
     return manifests.filter((m) => {
       if (state.dests.size && !state.dests.has(m.dest)) return false;
       if (!q) return true;
-      if (norm(m.no).includes(q) || m.addr.toLowerCase().includes(qRaw) || m.notes.toLowerCase().includes(qRaw)) return true;
+      if (norm(m.no).includes(q) || m.shippedBy.toLowerCase().includes(qRaw) || m.addr.toLowerCase().includes(qRaw) || m.notes.toLowerCase().includes(qRaw)) return true;
       return m.items.some((it) => norm(it.piece).includes(q) || norm(pieceKey(it.piece, it.pc)).includes(q) || norm(it.matid).includes(q) || it.desc.toLowerCase().includes(qRaw));
     });
   }
@@ -526,15 +528,16 @@ td.mono { white-space: nowrap; }
   function renderLog() {
     const list = sortList(filtered());
     document.querySelectorAll("th.sortable").forEach((th) => { th.textContent = th.textContent.replace(/ [▲▼]$/, ""); if (th.dataset.k === state.sortK) th.textContent += state.sortDir > 0 ? " ▲" : " ▼"; });
-    if (!manifests.length) { $("logBody").innerHTML = `<tr><td colspan="8" class="empty">No manifests yet. Use “+ New manifest” to add the first one.</td></tr>`; $("logCount").textContent = ""; return; }
+    if (!manifests.length) { $("logBody").innerHTML = `<tr><td colspan="9" class="empty">No manifests yet. Use “+ New manifest” to add the first one.</td></tr>`; $("logCount").textContent = ""; return; }
     $("logBody").innerHTML = list.length ? list.map((m) => `<tr class="row" data-id="${esc(m.id)}" tabindex="0">
       <td>${fmtDate(m.date)}</td>
       <td class="mono">${esc(m.no)}${flagNotes(m).length || m.status === "Issue" ? '<span class="flag" title="Something to check">!</span>' : ""}</td>
+      <td class="who">${m.shippedBy ? esc(m.shippedBy) : '<span class="muted">–</span>'}</td>
       <td><span class="destcell"><i style="background:${destColor(m.dest)}"></i>${esc(m.dest)}</span></td>
       <td class="num">${m.lines}</td><td class="num">${fmt(m.qty)}</td><td class="num">${m.wt == null ? '<span class="muted">–</span>' : fmt(m.wt)}</td>
       <td>${contents(m)}</td>
       <td><span class="pill ${m.status.toLowerCase()}">${m.status}</span></td></tr>`).join("")
-      : `<tr><td colspan="8" class="empty">Nothing matches “${esc(state.q)}”.</td></tr>`;
+      : `<tr><td colspan="9" class="empty">Nothing matches “${esc(state.q)}”.</td></tr>`;
     $("logCount").textContent = `Showing ${list.length} of ${manifests.length} manifests`;
   }
 
