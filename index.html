@@ -403,6 +403,7 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
     </div>
     <div class="actions">
       <button class="btn" id="printBtn" type="button">Print</button>
+      <button class="btn" id="pdfBtn" type="button">Download PDF</button>
       <button class="btn" id="nextBtn" type="button" hidden>Start next manifest</button>
       <button class="btn" id="editBtn" type="button">Edit</button>
       <button class="btn" id="cancelBtn" type="button" hidden>Cancel</button>
@@ -897,6 +898,95 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
     const go = () => { try { window.print(); } catch (e) { toast("Printing isn't available here. Try Ctrl+P."); } };
     if (img && !img.complete) { img.onload = go; img.onerror = go; } else go();
   }
+  // ---------- PDF download (pdf-lib, drawn to match the printed bill of lading) ----------
+  let pdfLibP = null, logoBytesP = null;
+  function loadPdfLib() {
+    if (window.PDFLib) return Promise.resolve(window.PDFLib);
+    if (!pdfLibP) pdfLibP = new Promise((res, rej) => { const sc = document.createElement("script"); sc.src = "pdf-lib.min.js"; sc.onload = () => res(window.PDFLib); sc.onerror = () => { pdfLibP = null; rej(new Error("load")); }; document.head.appendChild(sc); });
+    return pdfLibP;
+  }
+  function loadLogo() { if (!logoBytesP) logoBytesP = fetch("logo.png").then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null); return logoBytesP; }
+  async function bolPdf(m) {
+    const { PDFDocument, StandardFonts, rgb } = await loadPdfLib();
+    const doc = await PDFDocument.create();
+    doc.setTitle(m.no || "Manifest"); doc.setAuthor("Sons of Liberty Construction, Inc."); doc.setSubject("Bill of Lading / Manifest");
+    const F = await doc.embedFont(StandardFonts.Helvetica), FB = await doc.embedFont(StandardFonts.HelveticaBold), FI = await doc.embedFont(StandardFonts.HelveticaOblique);
+    let logo = null; try { const lb = await loadLogo(); if (lb) logo = await doc.embedPng(lb); } catch (e) { logo = null; }
+    const NAVY = rgb(0.106, 0.227, 0.361), BLACK = rgb(0, 0, 0), LINE = rgb(0.604, 0.655, 0.71), FILL = rgb(0.875, 0.906, 0.945);
+    const PW = 612, PH = 792, M = 36, CW = PW - 2 * M;
+    const safe = (t, font) => { t = String(t == null ? "" : t).replace(/[‘’]/g, "'").replace(/[“”″]/g, '"').replace(/′/g, "'").replace(/\s+/g, " ").trim(); let o = ""; for (const ch of t) { try { font.encodeText(ch); o += ch; } catch (e) { o += "?"; } } return o; };
+    const wrap = (t, font, size, w) => { const words = safe(t, font).split(" "); const lines = []; let cur = ""; words.forEach((wd) => { const tryL = cur ? cur + " " + wd : wd; if (font.widthOfTextAtSize(tryL, size) <= w || !cur) cur = tryL; else { lines.push(cur); cur = wd; } }); if (cur) lines.push(cur); return lines.length ? lines : [""]; };
+    const fit = (t, font, size, w) => { let x = safe(t, font); while (x && font.widthOfTextAtSize(x, size) > w) x = x.slice(0, -1); return x; };
+    let page = doc.addPage([PW, PH]); let y = PH - M;
+    const text = (t, x, yy, { font = F, size = 8.5, color = BLACK, align = "left", w = 0 } = {}) => { const s2 = safe(t, font); let xx = x; if (align === "right") xx = x - font.widthOfTextAtSize(s2, size); if (align === "center") xx = x + (w - font.widthOfTextAtSize(s2, size)) / 2; page.drawText(s2, { x: xx, y: yy, size, font, color }); };
+    const box = (x, yTop, w, h, fill) => page.drawRectangle({ x, y: yTop - h, width: w, height: h, borderColor: LINE, borderWidth: 0.75, color: fill || undefined });
+    // header
+    if (logo) { const lw = 62, lh = (logo.height / logo.width) * lw; page.drawImage(logo, { x: M, y: y - lh, width: lw, height: lh }); }
+    const cx = M + (logo ? 72 : 0);
+    text("SONS OF LIBERTY CONSTRUCTION, INC.", cx, y - 16, { font: FB, size: 10.5, color: NAVY });
+    text("1337 W 43rd St, Unit #1182", cx, y - 29, { size: 8.5 });
+    text("Houston, TX 77018", cx, y - 40, { size: 8.5 });
+    text(m.no, PW - M, y - 12, { font: FB, size: 12.5, color: NAVY, align: "right" });
+    text("MANIFEST", PW - M, y - 28, { font: FB, size: 12, color: NAVY, align: "right" });
+    text("BILL OF LADING / MANIFEST", PW - M, y - 40, { font: FB, size: 6.5, color: NAVY, align: "right" });
+    y -= 78;
+    const heading = (t) => { text(t, M, y, { font: FB, size: 8.5, color: NAVY }); y -= 6; };
+    // details table
+    heading("MANIFEST DETAILS");
+    const c1 = CW * 0.17, c2 = CW * 0.33;
+    const rowsDef = [["Manifest No.", m.no, "Shipped By", m.shippedBy], ["Job No.", m.job, "Email", m.email], ["Project", m.project, "Carrier / Truck", m.carrier]];
+    const cell = (x, yTop, w, h, label, val, isLabel) => { box(x, yTop, w, h, isLabel ? FILL : null); const lines = isLabel ? [label] : val; lines.forEach((ln, i) => text(ln, x + 5, yTop - 11 - i * 10.5, { font: isLabel ? FB : F, size: 8.5 })); };
+    rowsDef.forEach((r) => { const h = 16; cell(M, y, c1, h, r[0], null, true); cell(M + c1, y, c2, h, null, [fit(r[1], F, 8.5, c2 - 10)]); cell(M + c1 + c2, y, c1, h, r[2], null, true); cell(M + 2 * c1 + c2, y, c2, h, null, [fit(r[3], F, 8.5, c2 - 10)]); y -= h; });
+    const addrLines = (a) => { const parts = String(a || "").split(/,(?!\s*(?:[A-Z]{2}\b|\d{5}))\s*/).map((x) => x.trim()).filter(Boolean); const out = []; parts.forEach((pt) => wrap(pt, F, 8.5, c2 - 10).forEach((l) => out.push(l))); return out.length ? out : [""]; };
+    const dep = addrLines(m.departure), dst = addrLines(m.addr);
+    const hDep = Math.max(16, 6 + dep.length * 10.5), hDst = Math.max(16, 6 + dst.length * 10.5);
+    box(M, y, c1, hDep + hDst, FILL); text("Date Shipped", M + 5, y - (hDep + hDst) / 2 - 3, { font: FB, size: 8.5 });
+    box(M + c1, y, c2, hDep + hDst); text(m.date ? fmtDate(m.date) : "", M + c1 + 5, y - (hDep + hDst) / 2 - 3, { size: 8.5 });
+    cell(M + c1 + c2, y, c1, hDep, "Departure", null, true); cell(M + 2 * c1 + c2, y, c2, hDep, null, dep); y -= hDep;
+    cell(M + c1 + c2, y, c1, hDst, "Destination", null, true); cell(M + 2 * c1 + c2, y, c2, hDst, null, dst); y -= hDst;
+    y -= 16;
+    // description
+    heading("1. DESCRIPTION OF SHIPMENT");
+    const totQty = m.lines.reduce((a, r) => a + (parseFloat(r.qty) || 0), 0), totWt = m.lines.reduce((a, r) => a + (parseFloat(r.wt) || 0), 0);
+    let desc = String(m.shipDesc || "PIECE(S) - PER MATERIAL LIST BELOW").trim(); if (/^PIECE\(S\)/i.test(desc)) desc = `${fmt(totQty)} ${desc}`; if (m.notes) desc += ` (${m.notes})`;
+    const dl = wrap(desc, F, 8.5, CW - 10); const hD = Math.max(22, 8 + dl.length * 10.5);
+    box(M, y, CW, hD); dl.forEach((l, i) => text(l, M + 5, y - 12 - i * 10.5, { size: 8.5 })); y -= hD + 16;
+    // materials
+    heading("2. MATERIALS");
+    const cols = [["#", 0.05, "center"], ["Material ID", 0.15, "left"], ["Qty", 0.06, "center"], ["Description", 0.41, "left"], ["Tag No.", 0.11, "left"], ["DWG No.", 0.10, "left"], ["Weight (lbs)", 0.12, "right"]].map(([t, f, a]) => [t, f * CW, a]);
+    const hdrRow = () => { let x = M; cols.forEach(([t, w]) => { box(x, y, w, 15, FILL); text(t, x, y - 10.5, { font: FB, size: 7.5, align: "center", w }); x += w; }); y -= 15; };
+    hdrRow();
+    const rows = m.lines.slice(); while (rows.length < 16) rows.push(null);
+    const RH = 13.5;
+    rows.forEach((r, i) => {
+      if (y - RH < M + 150 && i < rows.length - 1 && rows.slice(i).some(Boolean)) { page = doc.addPage([PW, PH]); y = PH - M; text(`${m.no} (continued)`, M, y - 10, { font: FB, size: 9, color: NAVY }); y -= 24; hdrRow(); }
+      let x = M;
+      const vals = r ? [String(i + 1), r.matid, r.qty, r.desc, r.tag, r.dwg, r.wt !== "" && r.wt != null && !isNaN(parseFloat(r.wt)) ? fmt(parseFloat(r.wt), parseFloat(r.wt) % 1 ? 2 : 0) : ""] : [String(i + 1), "", "", "", "", "", ""];
+      cols.forEach(([, w, a], k) => { box(x, y, w, RH); const v = fit(vals[k], F, 8, w - 8); if (v) text(v, a === "right" ? x + w - 4 : x + 4, y - 9.8, { size: 8, align: a === "right" ? "right" : a === "center" ? "center" : "left", w: a === "center" ? w - 8 : 0 }); x += w; });
+      y -= RH;
+    });
+    const tw = cols[6][1], tl = CW * 0.22;
+    box(PW - M - tw - tl, y, tl, 15, FILL); text("TOTAL WEIGHT (LBS)", PW - M - tw - 5, y - 10.5, { font: FB, size: 7.5, align: "right" });
+    box(PW - M - tw, y, tw, 15); text(totWt ? fmt(totWt, totWt % 1 ? 2 : 0) : "", PW - M - 4, y - 10.5, { size: 8, align: "right" });
+    y -= 30;
+    if (y < M + 120) { page = doc.addPage([PW, PH]); y = PH - M - 20; }
+    text("All goods listed herein are accurately declared, properly packaged, and secured in accordance with applicable handling and transportation requirements.", M, y, { font: FI, size: 7 });
+    y -= 44;
+    const sig = (labels) => { const ws = [CW * 0.4, CW * 0.4, CW * 0.2], gap = 12; let x = M; labels.forEach((lb, i) => { const w = ws[i] - (i < 2 ? gap : 0); page.drawLine({ start: { x, y }, end: { x: x + w, y }, thickness: 0.75, color: BLACK }); text(lb, x, y - 9, { font: FB, size: 6.5 }); x += ws[i]; }); y -= 44; };
+    sig(["DRIVER NAME (PRINT)", "DRIVER SIGNATURE", "DATE"]);
+    sig(["RECEIVED BY (PRINT)", "RECEIVER SIGNATURE", "DATE"]);
+    return doc.save();
+  }
+  async function downloadPdf() {
+    const d = printData(); if (!d) return;
+    if (!d.lines.length) { toast("Add at least one line before downloading."); return; }
+    const btn = $("pdfBtn"); btn.disabled = true; const old = btn.textContent; btn.textContent = "Making PDF…";
+    try {
+      const bytes = await bolPdf(d);
+      saveBlob(new Blob([bytes], { type: "application/pdf" }), `${String(d.no || "manifest").replace(/[^A-Za-z0-9._-]+/g, "_")}.pdf`);
+    } catch (e) { toast("Couldn't make the PDF. Check your connection and try again."); }
+    finally { btn.disabled = false; btn.textContent = old; }
+  }
   function buildDoc(f, dupMode) {
     let no = formNo(f);
     const lines = f.rows.filter(rowHas);
@@ -1342,6 +1432,7 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
   const chartClick = (e) => { const r = e.target.closest("rect.bar"); if (!r) return; const d = r.dataset.date; state.q = ""; $("q").value = ""; state.tab = "log"; state.sortK = "date"; renderTab(); const row = [...document.querySelectorAll("#logBody tr.row")].find((tr) => byId.get(tr.dataset.id)?.date === d); if (row) { row.scrollIntoView({ block: "center" }); row.querySelector("td").animate?.([{ background: "var(--accent-soft)" }, { background: "transparent" }], 1400); } };
   $("chart").addEventListener("click", chartClick); $("chartTrucks").addEventListener("click", chartClick);
   $("printBtn").addEventListener("click", printManifest);
+  $("pdfBtn").addEventListener("click", downloadPdf);
   $("newBtn").addEventListener("click", () => { $("nextBtn").hidden = true; newManifest(); });
   $("nextBtn").addEventListener("click", () => { $("nextBtn").hidden = true; newManifest(); });
   $("exportBtn").addEventListener("click", exportXlsx);
