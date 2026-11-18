@@ -102,7 +102,7 @@ header.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-cont
 html, body { overflow-x: hidden; }
 @media (max-width: 640px) {
   #panel-log th:nth-child(3), #panel-log td:nth-child(3), #panel-log th:nth-child(5), #panel-log td:nth-child(5),
-  #panel-log th:nth-child(6), #panel-log td:nth-child(6), #panel-log th:nth-child(7), #panel-log td:nth-child(7), #panel-log th:nth-child(8), #panel-log td:nth-child(8) { display: none; }
+  #panel-log th:nth-child(6), #panel-log td:nth-child(6), #panel-log th:nth-child(7), #panel-log td:nth-child(7), #panel-log th:nth-child(8), #panel-log td:nth-child(8), #panel-log th:nth-child(10), #panel-log td:nth-child(10) { display: none; }
   #panel-log td:nth-child(1) { font-size: 12.5px; }
   #panel-log td, #panel-log th { padding: 8px 6px; }
   #panel-log td.mono { white-space: normal; word-break: break-all; font-size: 12px; }
@@ -145,6 +145,7 @@ td.num, th.num { text-align: right; }
 .mono { font-family: var(--font-mono); font-size: 13px; }
 td.mono { white-space: nowrap; }
 td.who { white-space: nowrap; }
+td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .muted { color: var(--muted); }
 .destcell { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .destcell i { width: 4px; height: 18px; border-radius: 2px; display: inline-block; }
@@ -356,6 +357,7 @@ td.who { white-space: nowrap; }
           <th class="sortable num" data-k="wt">Weight (lbs)</th>
           <th>Contents</th>
           <th class="sortable" data-k="status">Status</th>
+          <th class="sortable" data-k="createdAt">Added</th>
         </tr></thead>
         <tbody id="logBody"></tbody>
       </table>
@@ -457,13 +459,19 @@ td.who { white-space: nowrap; }
     const items = (Array.isArray(d.items) ? d.items : []).map(itemObj);
     let qty = 0, wt = 0, hasWt = false;
     items.forEach((it) => { qty += it.qty || 0; if (it.wt != null) { hasWt = true; wt += it.basis === "T" ? it.wt : it.wt * (it.qty || 1); } });
-    return { id, no: d.no || id, date: d.date || "", dest: d.dest || "", addr: d.addr || "", src: d.src || "", pages: d.pages || "", notes: d.notes || "", status: STATUSES.includes(d.status) ? d.status : "Shipped", recvDate: d.recvDate || "", shippedBy: d.shippedBy || "", items, raw: d, lines: items.length, qty, wt: hasWt ? wt : null };
+    return { id, no: d.no || id, date: d.date || "", dest: d.dest || "", addr: d.addr || "", src: d.src || "", pages: d.pages || "", notes: d.notes || "", status: STATUSES.includes(d.status) ? d.status : "Shipped", recvDate: d.recvDate || "", shippedBy: d.shippedBy || "", createdAt: d._createdAt || "", updatedAt: d._updatedAt || "", items, raw: d, lines: items.length, qty, wt: hasWt ? wt : null };
   }
   const destList = () => { const s = new Set(manifests.map((m) => m.dest).filter(Boolean)); return [...s].sort((a, b) => { const ia = DEST_ORDER.indexOf(a), ib = DEST_ORDER.indexOf(b); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b); }); };
   const palette = ["--c1", "--c2", "--c3", "--c4", "--c5", "--c6", "--c7", "--c8", "--c9"];
   function destColor(d) { const i = destList().indexOf(d); return `var(${palette[(i < 0 ? 8 : i) % palette.length]})`; }
   const ROUTINE = /^(DELIVER(ED)? TO|SENT TO|SHIPPED TO|Sent by night|SENT BY NIGHT|POC)/i;
   function flagNotes(m) { return String(m.notes || "").split(/;\s*/).filter((n) => n && !ROUTINE.test(n.trim())); }
+  function fmtStamp(ts, short) {
+    if (!ts) return "";
+    const d = new Date(ts); if (isNaN(d)) return "";
+    const date = short ? `${d.getMonth() + 1}/${d.getDate()}` : `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+    return `${date} ${d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+  }
   function fmtDate(iso) { if (!iso) return "–"; const [y, m, d] = iso.split("-"); return `${+m}/${+d}/${y}`; }
 
   function filtered() {
@@ -566,7 +574,7 @@ td.who { white-space: nowrap; }
   function renderLog() {
     const list = sortList(filtered());
     document.querySelectorAll("th.sortable").forEach((th) => { th.textContent = th.textContent.replace(/ [▲▼]$/, ""); if (th.dataset.k === state.sortK) th.textContent += state.sortDir > 0 ? " ▲" : " ▼"; });
-    if (!manifests.length) { $("logBody").innerHTML = `<tr><td colspan="9" class="empty">No manifests yet. Use “+ New manifest” to add the first one.</td></tr>`; $("logCount").textContent = ""; return; }
+    if (!manifests.length) { $("logBody").innerHTML = `<tr><td colspan="10" class="empty">No manifests yet. Use “+ New manifest” to add the first one.</td></tr>`; $("logCount").textContent = ""; return; }
     $("logBody").innerHTML = list.length ? list.map((m) => `<tr class="row" data-id="${esc(m.id)}" tabindex="0">
       <td>${fmtDate(m.date)}</td>
       <td class="mono">${esc(m.no)}${isFlagged(m) ? '<span class="flag" title="Something to check">!</span>' : ""}</td>
@@ -574,8 +582,9 @@ td.who { white-space: nowrap; }
       <td><span class="destcell"><i style="background:${destColor(m.dest)}"></i>${esc(m.dest)}</span></td>
       <td class="num">${m.lines}</td><td class="num">${fmt(m.qty)}</td><td class="num">${m.wt == null ? '<span class="muted">–</span>' : fmt(m.wt)}</td>
       <td>${contents(m)}</td>
-      <td><span class="pill ${m.status.toLowerCase()}">${m.status}</span></td></tr>`).join("")
-      : `<tr><td colspan="9" class="empty">Nothing matches “${esc(state.q)}”.</td></tr>`;
+      <td><span class="pill ${m.status.toLowerCase()}">${m.status}</span></td>
+      <td class="added muted" title="${esc(fmtStamp(m.createdAt))}">${m.createdAt ? esc(fmtStamp(m.createdAt, true)) : "–"}</td></tr>`).join("")
+      : `<tr><td colspan="10" class="empty">Nothing matches “${esc(state.q)}”.</td></tr>`;
     $("logCount").textContent = `Showing ${list.length} of ${manifests.length} manifests`;
   }
 
@@ -708,6 +717,7 @@ td.who { white-space: nowrap; }
         <div class="field"><span class="lab">Status</span>${statusBtns}</div>
         <div class="field"><span class="lab">Received</span><div class="ro">${m.recvDate ? fmtDate(m.recvDate) : '<span class="muted">Not yet</span>'}</div></div>
         ${cur.raw && (cur.raw.shippedBy || cur.raw.carrier) ? `<div class="field"><span class="lab">Shipped by / carrier</span><div class="ro">${esc([cur.raw.shippedBy, cur.raw.carrier].filter(Boolean).join(" · "))}</div></div>` : ""}
+        <div class="field"><span class="lab">Added to tracker</span><div class="ro">${cur.createdAt ? esc(fmtStamp(cur.createdAt)) : '<span class="muted">Not recorded</span>'}${cur.updatedAt && cur.createdAt && new Date(cur.updatedAt) - new Date(cur.createdAt) > 60000 ? `<br><span class="muted">Last changed ${esc(fmtStamp(cur.updatedAt))}</span>` : ""}</div></div>
         <div class="field"><span class="lab">Totals</span><div class="ro">${cur.lines} lines · ${fmt(qty)} pcs${cur.wt != null ? ` · ${fmt(cur.wt)} lbs` : ""}</div></div>
       </div>`;
       if (m.notes) h += `<div class="notebox"${flagNotes(m).length ? "" : ' style="background:var(--accent-soft);border-color:var(--accent)"'}>${esc(m.notes)}</div>`;
@@ -930,7 +940,8 @@ td.who { white-space: nowrap; }
         const nd = { job: f.job, project: f.project, shippedBy: f.shippedBy, email: f.email, carrier: f.carrier, departure: f.departure, addr: f.addr };
         if (JSON.stringify(nd) !== JSON.stringify(defaults || {})) { try { await db.doc("settings/defaults").set(nd); defaults = nd; } catch (e) { /* defaults are a convenience */ } }
       } else { const c = imp.cands.find((x) => x.key === f.fromImport); if (c) { c.added = no; c.addedId = id; renderImport(); } }
-      const local = enrich(id, body);
+      const prev = byId.get(id);
+      const local = enrich(id, { ...body, _createdAt: (prev && prev.createdAt) || new Date().toISOString(), _updatedAt: new Date().toISOString() });
       manifests = manifests.filter((m) => m.id !== id).concat(local); byId.set(id, local); renderAll();
       if (!f.fromImport) {
         // straight on to a fresh form with the next number; keep who/where from this one
@@ -988,7 +999,7 @@ td.who { white-space: nowrap; }
       await db.collection("manifests").doc(id).set(body);
       toast(isNew ? "Manifest added." : "Saved.");
       isNew = false; editing = false; draft = null;
-      const local = enrich(id, body); byId.set(id, local); cur = local; renderSheet();
+      const prevM = byId.get(id); const local = enrich(id, { ...body, _createdAt: (prevM && prevM.createdAt) || new Date().toISOString(), _updatedAt: new Date().toISOString() }); byId.set(id, local); cur = local; renderSheet();
     } catch (e) { handleWriteErr(e); } finally { $("saveBtn").disabled = !canWrite; }
   }
   async function setStatus(s) {
@@ -1282,13 +1293,13 @@ td.who { white-space: nowrap; }
     if (!window.XLSX) return exportCsv();
     const list = sortList(manifests).slice().reverse();
     const dt = (iso) => { if (!iso) return null; const [y, m, d] = iso.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d, 12)); };
-    const mRows = list.map((m) => ({ "Manifest No.": m.no, "Date Shipped": dt(m.date), "Destination": m.dest, "Address": m.addr, "Status": m.status, "Received Date": dt(m.recvDate), "Line Items": m.lines, "Pieces": m.qty, "Weight (lbs)": m.wt, "Shipped By": (m.raw && m.raw.shippedBy) || "", "Carrier": (m.raw && m.raw.carrier) || "", "Paperwork": m.src, "PDF Page(s)": m.pages, "Notes": m.notes }));
+    const mRows = list.map((m) => ({ "Manifest No.": m.no, "Date Shipped": dt(m.date), "Destination": m.dest, "Address": m.addr, "Status": m.status, "Received Date": dt(m.recvDate), "Line Items": m.lines, "Pieces": m.qty, "Weight (lbs)": m.wt, "Shipped By": (m.raw && m.raw.shippedBy) || "", "Carrier": (m.raw && m.raw.carrier) || "", "Paperwork": m.src, "PDF Page(s)": m.pages, "Added": m.createdAt ? new Date(m.createdAt) : null, "Notes": m.notes }));
     const pRows = [];
     list.forEach((m) => m.items.forEach((it) => pRows.push({ "Manifest No.": m.no, "Date Shipped": dt(m.date), "Destination": m.dest, "Piece No.": it.piece, "PC": it.pc, "Qty": it.qty, "Description": it.desc, "Material ID": it.matid, "Weight (lbs)": it.wt, "Weight Basis": it.basis === "E" ? "Each" : it.basis === "T" ? "Line total" : "", "Status": m.status, "Notes": it.note })));
     const wb = XLSX.utils.book_new();
     const w1 = XLSX.utils.json_to_sheet(mRows, { cellDates: true, dateNF: "mm/dd/yyyy" });
     const w2 = XLSX.utils.json_to_sheet(pRows, { cellDates: true, dateNF: "mm/dd/yyyy" });
-    w1["!cols"] = [28, 12, 16, 40, 10, 12, 9, 8, 12, 16, 12, 12, 10, 50].map((w) => ({ wch: w }));
+    w1["!cols"] = [28, 12, 16, 40, 10, 12, 9, 8, 12, 16, 12, 12, 10, 18, 50].map((w) => ({ wch: w }));
     w2["!cols"] = [28, 12, 16, 13, 8, 6, 40, 13, 12, 11, 10, 40].map((w) => ({ wch: w }));
     w1["!autofilter"] = { ref: w1["!ref"] }; w2["!autofilter"] = { ref: w2["!ref"] };
     XLSX.utils.book_append_sheet(wb, w1, "Manifests");
@@ -1319,7 +1330,7 @@ td.who { white-space: nowrap; }
   });
   $("destChips").addEventListener("click", (e) => { const b = e.target.closest(".chip"); if (!b) return; const d = b.dataset.d; if (!d) state.dests.clear(); else state.dests.has(d) ? state.dests.delete(d) : state.dests.add(d); renderAll(); });
   ["log", "piece", "flags", "import"].forEach((t) => $("tab-" + t).addEventListener("click", () => { state.tab = t; renderTab(); if (t === "piece") $("q").focus(); }));
-  document.querySelectorAll("th.sortable").forEach((th) => th.addEventListener("click", () => { const k = th.dataset.k; if (state.sortK === k) state.sortDir *= -1; else { state.sortK = k; state.sortDir = k === "date" || k === "qty" || k === "lines" || k === "wt" ? -1 : 1; } renderLog(); }));
+  document.querySelectorAll("th.sortable").forEach((th) => th.addEventListener("click", () => { const k = th.dataset.k; if (state.sortK === k) state.sortDir *= -1; else { state.sortK = k; state.sortDir = k === "date" || k === "qty" || k === "lines" || k === "wt" || k === "createdAt" ? -1 : 1; } renderLog(); }));
   const openFrom = (e) => {
     const c = e.target.closest("[data-clear]"); if (c) { setFlagCleared(c.dataset.clear, true); return; }
     const u = e.target.closest("[data-unclear]"); if (u) { setFlagCleared(u.dataset.unclear, false); return; }
@@ -1412,11 +1423,16 @@ td.who { white-space: nowrap; }
     const e = new Error("cancelled"); e.code = "cancelled"; throw e;
   }
   const listeners = [];
-  let lastRows = [];
+  let lastRows = [], hasCreated = null;
   async function refresh() {
-    const rows = await rest("/rest/v1/manifests?select=id,data&limit=5000");
+    let rows;
+    if (hasCreated !== false) {
+      try { rows = await rest("/rest/v1/manifests?select=id,data,created_at,updated_at&limit=5000"); hasCreated = true; }
+      catch (e) { if (hasCreated === true) throw e; hasCreated = false; }
+    }
+    if (!rows) rows = await rest("/rest/v1/manifests?select=id,data,updated_at&limit=5000");
     lastRows = rows || [];
-    const snap = { metadata: { fromCache: false }, docs: lastRows.map((r) => ({ id: r.id, exists: true, data: () => r.data })) };
+    const snap = { metadata: { fromCache: false }, docs: lastRows.map((r) => ({ id: r.id, exists: true, data: () => ({ ...r.data, _createdAt: r.created_at || "", _updatedAt: r.updated_at || "" }) })) };
     listeners.forEach((l) => l(snap));
   }
   function supaDb() {
