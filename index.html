@@ -97,7 +97,19 @@ header.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-cont
 .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
 .charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
-@media (max-width: 900px) { .charts { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .charts { grid-template-columns: minmax(0, 1fr); } }
+.charts > .card, .wrap > * { min-width: 0; }
+html, body { overflow-x: hidden; }
+@media (max-width: 640px) {
+  #panel-log th:nth-child(3), #panel-log td:nth-child(3), #panel-log th:nth-child(5), #panel-log td:nth-child(5),
+  #panel-log th:nth-child(6), #panel-log td:nth-child(6), #panel-log th:nth-child(7), #panel-log td:nth-child(7), #panel-log th:nth-child(8), #panel-log td:nth-child(8) { display: none; }
+  #panel-log td:nth-child(1) { font-size: 12.5px; }
+  #panel-log td, #panel-log th { padding: 8px 6px; }
+  #panel-log td.mono { white-space: normal; word-break: break-all; font-size: 12px; }
+  #panel-log .destcell { white-space: normal; }
+  .search input { font-size: 16px; }
+}
+.sheet:not(.open) { visibility: hidden; transition: transform .22s ease, visibility 0s linear .22s; }
 .chart { padding: 6px 10px 8px; overflow-x: auto; }
 .chart svg { display: block; }
 .chart text { fill: var(--muted); font-family: var(--font-body); font-size: 10.5px; }
@@ -322,7 +334,7 @@ td.who { white-space: nowrap; }
     </div>
     <label class="search" for="q">
       <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2"/></svg>
-      <input id="q" type="search" placeholder="Search manifest no., piece mark (B-4003), shipped by, material ID…" autocomplete="off">
+      <input id="q" type="search" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search" placeholder="Search manifest no., piece mark (B-4003), shipped by, material ID…" autocomplete="off">
     </label>
   </div>
   <div class="chips" id="destChips"></div>
@@ -508,7 +520,7 @@ td.who { white-space: nowrap; }
     const maxV = Math.max(...totals, 1);
     const step = maxV > 400 ? 100 : maxV > 200 ? 50 : maxV > 80 ? 20 : maxV > 40 ? 10 : maxV > 16 ? 5 : maxV > 8 ? 2 : 1;
     const top = Math.ceil(maxV / step) * step;
-    const W = Math.max(420, host.clientWidth - 20, days.length * 16 + 50), H = 170, L = 34, R = 6, T = 16, B = 30;
+    const W = Math.max(280, Math.min(host.clientWidth || 600, 2000) - 20, days.length * 14 + 50), H = 170, L = 34, R = 6, T = 16, B = 30;
     const cw = (W - L - R) / days.length, bw = Math.max(5, Math.min(22, cw * 0.66));
     const every = cw < 18 ? 3 : cw < 26 ? 2 : 1;
     const y = (v) => T + (H - T - B) * (1 - v / top);
@@ -1288,7 +1300,12 @@ td.who { white-space: nowrap; }
   }
 
   // ---------- events ----------
-  $("q").addEventListener("input", (e) => { state.q = e.target.value; renderKpis(); renderChart(); renderTab(); });
+  let qTimer;
+  $("q").addEventListener("input", (e) => {
+    state.q = e.target.value;
+    clearTimeout(qTimer);
+    qTimer = setTimeout(() => { renderTab(); renderKpis(); renderChart(); }, 180);
+  });
   $("destChips").addEventListener("click", (e) => { const b = e.target.closest(".chip"); if (!b) return; const d = b.dataset.d; if (!d) state.dests.clear(); else state.dests.has(d) ? state.dests.delete(d) : state.dests.add(d); renderAll(); });
   ["log", "piece", "flags", "import"].forEach((t) => $("tab-" + t).addEventListener("click", () => { state.tab = t; renderTab(); if (t === "piece") $("q").focus(); }));
   document.querySelectorAll("th.sortable").forEach((th) => th.addEventListener("click", () => { const k = th.dataset.k; if (state.sortK === k) state.sortDir *= -1; else { state.sortK = k; state.sortDir = k === "date" || k === "qty" || k === "lines" || k === "wt" ? -1 : 1; } renderLog(); }));
