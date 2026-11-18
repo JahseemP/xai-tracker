@@ -880,7 +880,7 @@ td.who { white-space: nowrap; }
       if (!f.fromImport) {
         const nd = { job: f.job, project: f.project, shippedBy: f.shippedBy, email: f.email, carrier: f.carrier, departure: f.departure, addr: f.addr };
         if (JSON.stringify(nd) !== JSON.stringify(defaults || {})) { try { await db.doc("settings/defaults").set(nd); defaults = nd; } catch (e) { /* defaults are a convenience */ } }
-      } else { const c = imp.cands.find((x) => x.key === f.fromImport); if (c) { c.added = no; renderImport(); } }
+      } else { const c = imp.cands.find((x) => x.key === f.fromImport); if (c) { c.added = no; c.addedId = id; renderImport(); } }
       const local = enrich(id, body);
       manifests = manifests.filter((m) => m.id !== id).concat(local); byId.set(id, local); renderAll();
       if (!f.fromImport) {
@@ -1158,7 +1158,9 @@ td.who { white-space: nowrap; }
           <div><div class="ttl">${esc(c.no || "Manifest number not found")}<span class="badge ${kind}">${esc(lab)}</span>${c.how === "claude" ? '<span class="badge dup">Read by Claude</span>' : ""}</div>
             <div class="meta">${c.date ? fmtDate(c.date) : "No date"} · ${esc(c.dest || c.addr || "No destination")} · ${c.rows.length} line${c.rows.length === 1 ? "" : "s"}, ${fmt(qty)} pcs · ${esc(c.file)} p. ${c.pages.join(", ")}</div>
             <div class="pieces">${esc(marks.slice(0, 8).join(", "))}${marks.length > 8 ? ` <span class="muted">+${marks.length - 8} more</span>` : ""}</div></div>
-          <div class="acts">${c.added ? "" : `<button class="btn small" type="button" data-review="${c.key}">Review &amp; edit</button>`}</div></div>`;
+          <div class="acts">${c.added
+            ? `<button class="btn small" type="button" data-open="${c.key}">Open &amp; edit</button><button class="btn small danger" type="button" data-del="${c.key}">${c.confirmDel ? "Confirm delete" : "Delete from tracker"}</button>`
+            : `<button class="btn small" type="button" data-review="${c.key}">Review &amp; edit</button><button class="btn small danger" type="button" data-rm="${c.key}">Remove</button>`}</div></div>`;
       }).join("");
     }
     if (imp.scans.length) {
@@ -1179,7 +1181,7 @@ td.who { white-space: nowrap; }
     for (const c of list) {
       const r = buildDoc(candToDraft(c), "skip");
       if (r.err) { fail++; continue; }
-      try { await db.collection("manifests").doc(r.id).set(r.body); c.added = r.no; ok++; manifests.push(enrich(r.id, r.body)); }
+      try { await db.collection("manifests").doc(r.id).set(r.body); c.added = r.no; c.addedId = r.id; ok++; manifests.push(enrich(r.id, r.body)); }
       catch (e) { fail++; if (e && e.code === "cancelled") { handleWriteErr(e); break; } }
       $("impStatus").textContent = `Adding… ${ok} of ${list.length}`;
     }
@@ -1194,6 +1196,23 @@ td.who { white-space: nowrap; }
   dz.addEventListener("drop", (e) => { if (e.dataTransfer && e.dataTransfer.files) importFiles(e.dataTransfer.files); });
   $("impOut").addEventListener("change", (e) => { const k = e.target.dataset.sel; if (k) { const c = imp.cands.find((x) => x.key === k); if (c) { c.sel = e.target.checked; renderImport(); } } });
   $("impOut").addEventListener("click", (e) => {
+    const find = (k) => imp.cands.find((x) => x.key === k);
+    const rm = e.target.closest("[data-rm]");
+    if (rm) { imp.cands = imp.cands.filter((x) => x.key !== rm.dataset.rm); $("impStatus").textContent = "Removed from the import list. Nothing was added to the tracker."; renderImport(); return; }
+    const op = e.target.closest("[data-open]");
+    if (op) { const c = find(op.dataset.open); if (c && byId.get(c.addedId)) { openSheet(c.addedId); startEdit(); } else toast("Couldn't find that manifest in the tracker. It may have been deleted."); return; }
+    const dl = e.target.closest("[data-del]");
+    if (dl) {
+      const c = find(dl.dataset.del); if (!c) return;
+      if (!c.confirmDel) { c.confirmDel = true; renderImport(); setTimeout(() => { if (c.confirmDel) { c.confirmDel = false; renderImport(); } }, 5000); return; }
+      c.confirmDel = false;
+      db.collection("manifests").doc(c.addedId).delete().then(() => {
+        manifests = manifests.filter((m) => m.id !== c.addedId); byId.delete(c.addedId);
+        c.added = ""; c.addedId = ""; c.sel = false; renderAll();
+        $("impStatus").textContent = "Deleted from the tracker. It's back in this list if you want to fix it and add it again.";
+      }).catch(handleWriteErr);
+      return;
+    }
     const rv = e.target.closest("[data-review]");
     if (rv) { const c = imp.cands.find((x) => x.key === rv.dataset.review); if (c) { isNew = true; editing = true; cur = null; draft = candToDraft(c); $("nextBtn").hidden = true; showSheet(); renderSheet(); } return; }
     if (e.target.id === "impAddAll") addAllReady();
