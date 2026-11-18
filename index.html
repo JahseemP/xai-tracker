@@ -157,7 +157,9 @@ td.who { white-space: nowrap; }
 
 /* flags */
 .flags { padding: 8px 16px 16px; display: grid; gap: 8px; }
-.flagrow { display: grid; grid-template-columns: 170px 1fr; gap: 12px; padding: 10px 12px; border-left: 3px solid var(--warn); background: var(--warn-soft); border-radius: 0 6px 6px 0; cursor: pointer; }
+.flagrow.cleared { border-left-color: var(--line); background: var(--bg); opacity: .75; }
+.flagrow .fact { display: flex; align-items: flex-start; }
+.flagrow { display: grid; grid-template-columns: 170px 1fr auto; gap: 12px; padding: 10px 12px; border-left: 3px solid var(--warn); background: var(--warn-soft); border-radius: 0 6px 6px 0; cursor: pointer; }
 .flagrow .mono { font-weight: 500; }
 
 /* sheet */
@@ -551,7 +553,7 @@ td.who { white-space: nowrap; }
     if (!manifests.length) { $("logBody").innerHTML = `<tr><td colspan="9" class="empty">No manifests yet. Use “+ New manifest” to add the first one.</td></tr>`; $("logCount").textContent = ""; return; }
     $("logBody").innerHTML = list.length ? list.map((m) => `<tr class="row" data-id="${esc(m.id)}" tabindex="0">
       <td>${fmtDate(m.date)}</td>
-      <td class="mono">${esc(m.no)}${flagNotes(m).length || m.status === "Issue" ? '<span class="flag" title="Something to check">!</span>' : ""}</td>
+      <td class="mono">${esc(m.no)}${isFlagged(m) ? '<span class="flag" title="Something to check">!</span>' : ""}</td>
       <td class="who">${m.shippedBy ? esc(m.shippedBy) : '<span class="muted">–</span>'}</td>
       <td><span class="destcell"><i style="background:${destColor(m.dest)}"></i>${esc(m.dest)}</span></td>
       <td class="num">${m.lines}</td><td class="num">${fmt(m.qty)}</td><td class="num">${m.wt == null ? '<span class="muted">–</span>' : fmt(m.wt)}</td>
@@ -588,13 +590,31 @@ td.who { white-space: nowrap; }
     }).join("");
   }
 
+  function flagLines(m) { return [m.status === "Issue" ? "Marked Issue" : "", flagNotes(m).join("; "), ...m.items.filter((it) => it.note).map((it) => `${it.piece || it.desc}: ${it.note}`)].filter(Boolean); }
+  function flagSig(m) { const n = flagLines(m); return n.length ? n.join(" | ").slice(0, 500) : ""; }
+  function isFlagged(m) { const sig = flagSig(m); return !!sig && (m.raw || {}).flagCleared !== sig; }
+  let showCleared = false;
   function renderFlags() {
-    const list = manifests.filter((m) => flagNotes(m).length || m.status === "Issue" || m.items.some((it) => it.note)).sort((a, b) => b.date.localeCompare(a.date));
+    const all = manifests.filter((m) => flagSig(m)).sort((a, b) => b.date.localeCompare(a.date));
+    const list = all.filter(isFlagged), cleared = all.filter((m) => !isFlagged(m));
     $("flagCount").textContent = list.length ? `(${list.length})` : "";
-    $("flagsOut").innerHTML = list.length ? list.map((m) => {
-      const n = [m.status === "Issue" ? "Marked Issue" : "", flagNotes(m).join("; "), ...m.items.filter((it) => it.note).map((it) => `${it.piece || it.desc}: ${it.note}`)].filter(Boolean);
-      return `<div class="flagrow" data-id="${esc(m.id)}" tabindex="0"><div><div class="mono">${esc(m.no)}</div><div class="muted">${fmtDate(m.date)} · ${esc(m.dest)}</div></div><div>${n.map(esc).join("<br>")}</div></div>`;
-    }).join("") : '<div class="empty">Nothing flagged.</div>';
+    const row = (m, isCleared) => `<div class="flagrow${isCleared ? " cleared" : ""}" data-id="${esc(m.id)}" tabindex="0"><div><div class="mono">${esc(m.no)}</div><div class="muted">${fmtDate(m.date)} · ${esc(m.dest)}</div></div><div>${flagLines(m).map(esc).join("<br>")}</div>
+      <div class="fact">${isCleared ? `<button class="btn small" type="button" data-unclear="${esc(m.id)}">Restore</button>` : `<button class="btn small" type="button" data-clear="${esc(m.id)}">Clear</button>`}</div></div>`;
+    let h = list.length ? list.map((m) => row(m, false)).join("") : '<div class="empty">Nothing flagged. You\'re all caught up.</div>';
+    if (cleared.length) {
+      h += `<div class="actions" style="justify-content:space-between;align-items:center;margin-top:6px"><span class="hint">${cleared.length} cleared flag${cleared.length === 1 ? "" : "s"}</span><button class="btn small ghost" type="button" id="toggleCleared">${showCleared ? "Hide cleared" : "Show cleared"}</button></div>`;
+      if (showCleared) h += cleared.map((m) => row(m, true)).join("");
+    }
+    $("flagsOut").innerHTML = h;
+  }
+  async function setFlagCleared(id, clear) {
+    const m = byId.get(id); if (!m) return;
+    const sig = clear ? flagSig(m) : "";
+    try {
+      await db.collection("manifests").doc(id).update({ flagCleared: sig });
+      m.raw = { ...(m.raw || {}), flagCleared: sig }; renderFlags(); renderLog();
+      toast(clear ? `Cleared the flag on ${m.no}.` : `Flag restored on ${m.no}.`);
+    } catch (e) { handleWriteErr(e); }
   }
   function renderTab() {
     ["log", "piece", "flags", "import"].forEach((t) => { $("panel-" + t).hidden = state.tab !== t; $("tab-" + t).setAttribute("aria-selected", state.tab === t); });
@@ -944,7 +964,7 @@ td.who { white-space: nowrap; }
     if (!draft.no) { toast("Enter a manifest number first."); $("f-no") && $("f-no").focus(); return; }
     if (!draft.date) { toast("Enter the date shipped."); return; }
     const items = draft.items.filter((it) => it.piece || it.desc || it.matid);
-    const keep = {}; if (!isNew && cur && cur.raw) ["job", "project", "shippedBy", "email", "carrier", "departure"].forEach((k) => { if (cur.raw[k]) keep[k] = cur.raw[k]; });
+    const keep = {}; if (!isNew && cur && cur.raw) ["job", "project", "shippedBy", "email", "carrier", "departure", "flagCleared"].forEach((k) => { if (cur.raw[k]) keep[k] = cur.raw[k]; });
     const body = { ...keep, no: draft.no, date: draft.date, dest: draft.dest, addr: draft.addr, src: draft.src, pages: draft.pages || "", notes: draft.notes, status: draft.status, recvDate: draft.recvDate || "", items: items.map((it) => { const o = { ...it }; if (o.wt != null && !o.basis) o.basis = "E"; return itemArr(o); }) };
     const id = isNew ? docId(draft.no) : cur.id;
     $("saveBtn").disabled = true;
@@ -1272,7 +1292,13 @@ td.who { white-space: nowrap; }
   $("destChips").addEventListener("click", (e) => { const b = e.target.closest(".chip"); if (!b) return; const d = b.dataset.d; if (!d) state.dests.clear(); else state.dests.has(d) ? state.dests.delete(d) : state.dests.add(d); renderAll(); });
   ["log", "piece", "flags", "import"].forEach((t) => $("tab-" + t).addEventListener("click", () => { state.tab = t; renderTab(); if (t === "piece") $("q").focus(); }));
   document.querySelectorAll("th.sortable").forEach((th) => th.addEventListener("click", () => { const k = th.dataset.k; if (state.sortK === k) state.sortDir *= -1; else { state.sortK = k; state.sortDir = k === "date" || k === "qty" || k === "lines" || k === "wt" ? -1 : 1; } renderLog(); }));
-  const openFrom = (e) => { const el = e.target.closest("[data-id]"); if (el && !e.target.closest(".xb")) openSheet(el.dataset.id); };
+  const openFrom = (e) => {
+    const c = e.target.closest("[data-clear]"); if (c) { setFlagCleared(c.dataset.clear, true); return; }
+    const u = e.target.closest("[data-unclear]"); if (u) { setFlagCleared(u.dataset.unclear, false); return; }
+    if (e.target.id === "toggleCleared") { showCleared = !showCleared; renderFlags(); return; }
+    if (e.target.closest("button")) return;
+    const el = e.target.closest("[data-id]"); if (el && !e.target.closest(".xb")) openSheet(el.dataset.id);
+  };
   ["logBody", "pieceOut", "flagsOut"].forEach((id) => { $(id).addEventListener("click", openFrom); $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") openFrom(e); }); });
   const chartClick = (e) => { const r = e.target.closest("rect.bar"); if (!r) return; const d = r.dataset.date; state.q = ""; $("q").value = ""; state.tab = "log"; state.sortK = "date"; renderTab(); const row = [...document.querySelectorAll("#logBody tr.row")].find((tr) => byId.get(tr.dataset.id)?.date === d); if (row) { row.scrollIntoView({ block: "center" }); row.querySelector("td").animate?.([{ background: "var(--accent-soft)" }, { background: "transparent" }], 1400); } };
   $("chart").addEventListener("click", chartClick); $("chartTrucks").addEventListener("click", chartClick);
