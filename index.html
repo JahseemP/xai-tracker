@@ -209,6 +209,7 @@ td.who { white-space: nowrap; }
 .pcdlg { position: fixed; z-index: 31; left: 50%; top: 22%; transform: translateX(-50%); width: min(380px, 92vw); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: grid; gap: 10px; box-shadow: var(--shadow); }
 .pcdlg h2 { margin: 0; font-family: var(--font-display); text-transform: uppercase; font-size: 20px; }
 .pcdlg input { border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 9px 10px; font-size: 16px; }
+.masked { -webkit-text-security: disc; text-security: disc; }
 .pcerr { color: var(--warn); font-size: 13px; min-height: 1em; }
 #printArea { display: none; }
 @media print {
@@ -336,7 +337,7 @@ td.who { white-space: nowrap; }
     </div>
     <label class="search" for="q">
       <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2"/></svg>
-      <input id="q" type="text" inputmode="search" role="searchbox" name="trk-find-nohist" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search" aria-label="Search" placeholder="Search manifest no., piece mark (B-4003), shipped by, material ID…">
+      <input id="q" type="text" inputmode="search" role="searchbox" name="trk-find-nohist" autocomplete="off" data-lpignore="true" data-1p-ignore data-form-type="other" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search" aria-label="Search" placeholder="Search manifest no., piece mark (B-4003), shipped by, material ID…">
       <button type="button" id="qClear" class="qclear" aria-label="Clear search" hidden>✕</button>
     </label>
   </div>
@@ -411,7 +412,7 @@ td.who { white-space: nowrap; }
 <div class="pcdlg" id="pcDlg" role="dialog" aria-modal="true" aria-labelledby="pcTitle" hidden>
   <h2 id="pcTitle">Team passcode</h2>
   <p class="hint">Enter the team passcode to save changes. This device will remember it.</p>
-  <input id="pcInput" type="password" autocomplete="current-password" aria-label="Team passcode">
+  <input id="pcInput" type="text" class="masked" name="trk-team-code" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-form-type="other" aria-label="Team passcode">
   <div class="pcerr" id="pcErr" role="alert"></div>
   <div class="actions" style="justify-content:flex-end"><button class="btn" id="pcCancel" type="button">Cancel</button><button class="btn primary" id="pcOk" type="button">Unlock</button></div>
 </div>
