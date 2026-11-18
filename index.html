@@ -96,13 +96,15 @@ header.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-cont
 .card-h h2 { font-family: var(--font-display); font-size: 20px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; margin: 0; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
-#chart { padding: 8px 12px 10px; overflow-x: auto; }
-#chart svg { display: block; }
-#chart text { fill: var(--muted); font-family: var(--font-body); font-size: 11px; }
-#chart .grid { stroke: var(--line); }
-#chart rect.bar { cursor: pointer; }
-#chart rect.bar:hover { opacity: .8; }
-#chart .tot { fill: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+@media (max-width: 900px) { .charts { grid-template-columns: 1fr; } }
+.chart { padding: 6px 10px 8px; overflow-x: auto; }
+.chart svg { display: block; }
+.chart text { fill: var(--muted); font-family: var(--font-body); font-size: 10.5px; }
+.chart .grid { stroke: var(--line); }
+.chart rect.bar { cursor: pointer; }
+.chart rect.bar:hover { opacity: .8; }
+.chart .tot { fill: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; font-size: 10px; }
 
 .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .tabs { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; background: var(--panel); }
@@ -297,10 +299,17 @@ td.who { white-space: nowrap; }
     <div class="kpi attn"><div class="lab">Not marked received</div><div class="val" id="kOpen">–</div><div class="note" id="kIssue">&nbsp;</div></div>
   </section>
 
-  <section class="card" aria-label="Line items shipped per day">
-    <div class="card-h"><h2>Pieces shipped per day</h2><div class="legend" id="legend"></div></div>
-    <div id="chart"></div>
-  </section>
+  <div class="charts">
+    <section class="card" aria-label="Pieces shipped per day">
+      <div class="card-h"><h2>Pieces shipped per day</h2><span class="hint" id="chartSum"></span></div>
+      <div id="chart" class="chart"></div>
+    </section>
+    <section class="card" aria-label="Trucks sent per day">
+      <div class="card-h"><h2>Trucks sent per day</h2><span class="hint" id="chartTrucksSum"></span></div>
+      <div id="chartTrucks" class="chart"></div>
+    </section>
+  </div>
+  <div class="legend" id="legend" style="margin-top:-8px"></div>
 
   <div class="toolbar">
     <div class="tabs" role="tablist">
@@ -476,34 +485,42 @@ td.who { white-space: nowrap; }
 
   function renderChart() {
     const ms = filtered().filter((m) => m.date);
-    const host = $("chart");
+    const trucks = ms.length, pcs = ms.reduce((a, m) => a + m.qty, 0);
+    $("chartSum").textContent = ms.length ? `${fmt(pcs)} pieces` : "";
+    $("chartTrucksSum").textContent = ms.length ? `${fmt(trucks)} truck${trucks === 1 ? "" : "s"}` : "";
+    drawDaily($("chart"), ms, (m) => m.qty, "pcs");
+    drawDaily($("chartTrucks"), ms, () => 1, "truck");
+  }
+  function drawDaily(host, ms, val, unit) {
     if (!ms.length) { host.innerHTML = '<div class="empty">No shipments match.</div>'; return; }
     const dates = ms.map((m) => m.date).sort();
     const start = new Date(dates[0] + "T12:00:00"), end = new Date(dates[dates.length - 1] + "T12:00:00");
     const days = []; for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) days.push(d.toISOString().slice(0, 10));
     const dl = destList();
     const by = {}; days.forEach((d) => (by[d] = {}));
-    ms.forEach((m) => { by[m.date][m.dest] = (by[m.date][m.dest] || 0) + m.qty; });
+    ms.forEach((m) => { by[m.date][m.dest] = (by[m.date][m.dest] || 0) + val(m); });
     const totals = days.map((d) => Object.values(by[d]).reduce((a, b) => a + b, 0));
     const maxV = Math.max(...totals, 1);
-    const step = maxV > 400 ? 100 : maxV > 200 ? 50 : maxV > 80 ? 20 : maxV > 40 ? 10 : 5;
+    const step = maxV > 400 ? 100 : maxV > 200 ? 50 : maxV > 80 ? 20 : maxV > 40 ? 10 : maxV > 16 ? 5 : maxV > 8 ? 2 : 1;
     const top = Math.ceil(maxV / step) * step;
-    const W = Math.max(640, host.clientWidth - 24, days.length * 26 + 60), H = 240, L = 44, R = 8, T = 18, B = 34;
-    const cw = (W - L - R) / days.length, bw = Math.max(6, Math.min(26, cw * 0.66));
+    const W = Math.max(420, host.clientWidth - 20, days.length * 16 + 50), H = 170, L = 34, R = 6, T = 16, B = 30;
+    const cw = (W - L - R) / days.length, bw = Math.max(5, Math.min(22, cw * 0.66));
+    const every = cw < 18 ? 3 : cw < 26 ? 2 : 1;
     const y = (v) => T + (H - T - B) * (1 - v / top);
-    let s = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Pieces shipped per day by destination">`;
-    for (let v = 0; v <= top; v += step) s += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+    let s = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${unit === "pcs" ? "Pieces" : "Trucks"} per day by destination">`;
+    for (let v = 0; v <= top; v += step) s += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 5}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
     days.forEach((d, i) => {
       const x = L + i * cw + (cw - bw) / 2; let acc = 0;
       dl.forEach((dest) => {
         const v = by[d][dest]; if (!v) return;
         const y1 = y(acc + v), y0 = y(acc); acc += v;
-        s += `<rect class="bar" data-date="${d}" x="${x.toFixed(1)}" y="${y1.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, y0 - y1).toFixed(1)}" fill="${destColor(dest)}"><title>${fmtDate(d)} · ${esc(dest)}: ${v} pcs</title></rect>`;
+        const lab = unit === "pcs" ? `${v} pcs` : `${v} truck${v === 1 ? "" : "s"}`;
+        s += `<rect class="bar" data-date="${d}" x="${x.toFixed(1)}" y="${y1.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, y0 - y1).toFixed(1)}" fill="${destColor(dest)}"><title>${fmtDate(d)} · ${esc(dest)}: ${lab}</title></rect>`;
       });
-      if (totals[i]) s += `<text class="tot" x="${(x + bw / 2).toFixed(1)}" y="${(y(totals[i]) - 5).toFixed(1)}" text-anchor="middle">${totals[i]}</text>`;
+      if (totals[i] && cw >= 14) s += `<text class="tot" x="${(x + bw / 2).toFixed(1)}" y="${(y(totals[i]) - 4).toFixed(1)}" text-anchor="middle">${totals[i]}</text>`;
       const dt = new Date(d + "T12:00:00");
-      if (days.length <= 31 || i % 2 === 0) s += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - B + 15}" text-anchor="middle">${dt.getMonth() + 1}/${dt.getDate()}</text>`;
-      if (dt.getDay() === 1) s += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - B + 28}" text-anchor="middle">Mon</text>`;
+      if (i % every === 0) s += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - B + 14}" text-anchor="middle">${dt.getMonth() + 1}/${dt.getDate()}</text>`;
+      if (dt.getDay() === 1 && i % every === 0) s += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - B + 26}" text-anchor="middle">Mon</text>`;
     });
     s += `<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="currentColor" opacity=".4"/></svg>`;
     host.innerHTML = s;
@@ -1224,7 +1241,8 @@ td.who { white-space: nowrap; }
   document.querySelectorAll("th.sortable").forEach((th) => th.addEventListener("click", () => { const k = th.dataset.k; if (state.sortK === k) state.sortDir *= -1; else { state.sortK = k; state.sortDir = k === "date" || k === "qty" || k === "lines" || k === "wt" ? -1 : 1; } renderLog(); }));
   const openFrom = (e) => { const el = e.target.closest("[data-id]"); if (el && !e.target.closest(".xb")) openSheet(el.dataset.id); };
   ["logBody", "pieceOut", "flagsOut"].forEach((id) => { $(id).addEventListener("click", openFrom); $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") openFrom(e); }); });
-  $("chart").addEventListener("click", (e) => { const r = e.target.closest("rect.bar"); if (!r) return; const d = r.dataset.date; state.q = ""; $("q").value = ""; state.tab = "log"; state.sortK = "date"; renderTab(); const row = [...document.querySelectorAll("#logBody tr.row")].find((tr) => byId.get(tr.dataset.id)?.date === d); if (row) { row.scrollIntoView({ block: "center" }); row.querySelector("td").animate?.([{ background: "var(--accent-soft)" }, { background: "transparent" }], 1400); } });
+  const chartClick = (e) => { const r = e.target.closest("rect.bar"); if (!r) return; const d = r.dataset.date; state.q = ""; $("q").value = ""; state.tab = "log"; state.sortK = "date"; renderTab(); const row = [...document.querySelectorAll("#logBody tr.row")].find((tr) => byId.get(tr.dataset.id)?.date === d); if (row) { row.scrollIntoView({ block: "center" }); row.querySelector("td").animate?.([{ background: "var(--accent-soft)" }, { background: "transparent" }], 1400); } };
+  $("chart").addEventListener("click", chartClick); $("chartTrucks").addEventListener("click", chartClick);
   $("printBtn").addEventListener("click", printManifest);
   $("newBtn").addEventListener("click", () => { $("nextBtn").hidden = true; newManifest(); });
   $("nextBtn").addEventListener("click", () => { $("nextBtn").hidden = true; newManifest(); });
