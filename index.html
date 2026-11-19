@@ -716,7 +716,7 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
         <div class="field"><span class="lab">Destination</span><div class="ro"><span class="destcell"><i style="background:${destColor(m.dest)}"></i>${esc(m.dest)}</span></div></div>
         <div class="field wide"><span class="lab">Address on paperwork</span><div class="ro">${esc(m.addr) || '<span class="muted">–</span>'}</div></div>
         <div class="field"><span class="lab">Status</span>${statusBtns}</div>
-        <div class="field"><span class="lab">Received</span><div class="ro">${m.recvDate ? fmtDate(m.recvDate) : '<span class="muted">Not yet</span>'}</div></div>
+        <div class="field"><span class="lab">Received</span><div class="ro">${m.recvDate ? fmtDate(m.recvDate) : m.status === "Received" ? '<span class="muted">Date not recorded</span>' : '<span class="muted">Not yet</span>'}</div></div>
         ${cur.raw && (cur.raw.shippedBy || cur.raw.carrier) ? `<div class="field"><span class="lab">Shipped by / carrier</span><div class="ro">${esc([cur.raw.shippedBy, cur.raw.carrier].filter(Boolean).join(" · "))}</div></div>` : ""}
         <div class="field"><span class="lab">Added to tracker</span><div class="ro">${cur.createdAt ? esc(fmtStamp(cur.createdAt)) : '<span class="muted">Not recorded</span>'}${cur.updatedAt && cur.createdAt && new Date(cur.updatedAt) - new Date(cur.createdAt) > 60000 ? `<br><span class="muted">Last changed ${esc(fmtStamp(cur.updatedAt))}</span>` : ""}</div></div>
         <div class="field"><span class="lab">Totals</span><div class="ro">${cur.lines} lines · ${fmt(qty)} pcs${cur.wt != null ? ` · ${fmt(cur.wt)} lbs` : ""}</div></div>
