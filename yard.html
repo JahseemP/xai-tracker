@@ -321,6 +321,11 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
 .empty { padding:30px 10px; text-align:center; color:var(--muted); }
 @media (max-width: 860px) { .ygrid { grid-template-columns: minmax(0,1fr); } .bays { margin-top:12px; } .ystats { grid-template-columns:repeat(2,minmax(0,1fr)); } .ystats > div { border-bottom:1px solid var(--line); } .ybar .sizes { margin-left:0; } .ytable .hm { display:none; } }
 .ystats .v { overflow-wrap:anywhere; }
+.chead { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:2px; }
+.seg { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+.seg button { border:0; background:transparent; padding:3px 10px; font-size:12px; cursor:pointer; color:var(--muted); }
+.seg button[aria-pressed="true"] { background:var(--ink); color:var(--bg); }
+.cbox svg g.selb rect:last-of-type { stroke: var(--ink); stroke-width: 2; }
 .byc { white-space:nowrap; font-size:13px; }
 .in { color: var(--good); } .out { color: var(--warn); }
 .ystats .v.in { color: var(--good); } .ystats .v.out { color: var(--warn); }
@@ -368,7 +373,7 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
     <div class="ystats" id="stats"></div>
     <div class="ygrid"><div>
       <div class="ybar"><button class="chip" data-kind="all" aria-pressed="true">In &amp; out</button><button class="chip" data-kind="in" aria-pressed="false">Received only</button><button class="chip" data-kind="out" aria-pressed="false">Shipped out only</button><span class="sizes" id="sizeChips"></span></div>
-      <div class="cbox"><div class="clab"><span id="chartLab">Pieces per day · last 2 weeks · </span><span style="color:var(--steel)">■</span> received <span style="color:var(--accent)">■</span> shipped out</div><div id="chart"></div></div>
+      <div class="cbox"><div class="chead"><div class="clab" id="chartLab"></div><div class="seg" role="group" aria-label="Chart"><button type="button" data-chart="summary" aria-pressed="true">Summary</button><button type="button" data-chart="daily" aria-pressed="false">Per day</button></div></div><div id="chart"></div></div>
       <div class="tablewrap"><table class="ytable"><thead><tr><th style="width:40px"></th><th id="thSize">Size</th><th id="thLen">Length</th><th class="num">Qty</th><th class="num hm">Lbs each</th><th class="num">Total lbs</th><th id="thBy">Received by</th><th class="hm">Manifest / BOL</th></tr></thead><tbody id="rows"></tbody></table></div>
       <div class="foot" style="padding:8px 0"><span id="showing"></span><span>Click a line to edit or delete it.</span></div>
     </div>
@@ -509,7 +514,6 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
     $("yTitle").textContent = stType === "bolts" ? "Bolts" : "Raw steel";
     $("thBy").textContent = st.kind === "out" ? "Shipped by" : st.kind === "in" ? "Received by" : "Received / shipped by";
     $("thSize").textContent = T().sizeH; $("thLen").textContent = T().lenH;
-    $("chartLab").textContent = (stType === "bolts" ? "Bolts" : "Pieces") + " per day · last 2 weeks · ";
     document.querySelectorAll("[data-range]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.range === st.range)));
     document.querySelectorAll("[data-kind]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === st.kind)));
     const ws = weekStart();
@@ -558,7 +562,41 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
       `<div class="bay all"><div class="bn"><strong>All ${stType === "bolts" ? "bolts" : "raw steel"} on hand</strong></div><div class="bv">${isBolt(stType) ? esc(unitTxt(rows, (r) => Number(r.qty))) : fmt(onHand)}</div></div><div class="hint" style="margin-top:4px">${gone ? `${gone} size${gone === 1 ? "" : "s"} fully shipped out (hidden). ` : ""}Click a size to see its history${st.combo ? ' · <a href="#" id="clearCombo">show all</a>' : ""}.</div>`;
   }
 
+  let chartMode = "summary"; try { chartMode = localStorage.getItem("xai-yard-chart") === "daily" ? "daily" : "summary"; } catch (e) { /* storage blocked */ }
   function renderChart() {
+    document.querySelectorAll("[data-chart]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.chart === chartMode)));
+    if (chartMode === "summary") return renderSummary();
+    $("chartLab").innerHTML = `${stType === "bolts" ? "Bolts" : "Pieces"} per day · last 2 weeks · <span style="color:var(--steel)">■</span> received <span style="color:var(--accent)">■</span> shipped out`;
+    renderDaily();
+  }
+  // Summary: one bar per size × length. Full bar = received, dark part = still on hand, amber cap = shipped out.
+  function renderSummary() {
+    const src = rows.filter((r) => !st.size || r.size === st.size);
+    const oh = onHandMap(src);
+    const keys = [...oh.keys()].sort((a, b) => { const [sa, la] = a.split("|"), [sb, lb] = b.split("|"); return sizeSort(sa, sb) || lenSort(la, lb); });
+    const tIn = sumIn(src), tOut = sumOut(src), tOn = tIn - tOut;
+    $("chartLab").innerHTML = isBolt(stType)
+      ? `Bolts summary · on hand by size · <span style="color:var(--steel)">■</span> on hand <span style="color:var(--accent)">■</span> shipped out`
+      : `Steel summary · <strong>${fmt(tOn)}</strong> on hand of ${fmt(tIn)} received (${tIn ? Math.round(100 * tOn / tIn) : 0}%) · <span style="color:var(--steel)">■</span> on hand <span style="color:var(--accent)">■</span> shipped out`;
+    if (!keys.length) { $("chart").innerHTML = `<div class="empty" style="padding:14px">Nothing logged yet.</div>`; return; }
+    const n = keys.length, W = 1000, H = 150, top = 22, base = H - 34;
+    const slot = W / n, bw = Math.min(70, slot * 0.6);
+    const mx = Math.max(1, ...keys.map((k) => oh.get(k).inn));
+    let g = "";
+    keys.forEach((k, i) => {
+      const v = oh.get(k), [s, l, u] = k.split("|"), cx = slot * i + slot / 2, x = cx - bw / 2;
+      const hIn = Math.round((base - top) * v.inn / mx), hOn = Math.round((base - top) * Math.max(0, v.q) / mx), hOut = hIn - hOn;
+      g += `<g${st.combo === k ? ' class="selb"' : ""} data-combo="${esc(k)}" style="cursor:pointer"><title>${esc(labOf(k))}: ${fmt(v.q)} on hand · ${fmt(v.inn)} received · ${fmt(v.out)} shipped out</title>`;
+      g += `<rect x="${x.toFixed(1)}" y="${top}" width="${bw.toFixed(1)}" height="${base - top}" fill="transparent"/>`;
+      if (hOut > 0) g += `<rect x="${x.toFixed(1)}" y="${base - hIn}" width="${bw.toFixed(1)}" height="${hOut}" rx="2" fill="var(--accent)" opacity=".85"/>`;
+      g += `<rect x="${x.toFixed(1)}" y="${base - Math.max(hOn, 1)}" width="${bw.toFixed(1)}" height="${Math.max(hOn, 1)}" rx="2" fill="${v.q < 0 ? "var(--warn)" : "var(--steel)"}"/>`;
+      g += `<text x="${cx.toFixed(1)}" y="${base - hIn - 6}" text-anchor="middle" font-size="15" font-weight="600">${fmt(v.q)}${v.out ? `<tspan class="ax" font-size="12" font-weight="400"> / ${fmt(v.inn)}</tspan>` : ""}</text>`;
+      g += `<text class="ax" x="${cx.toFixed(1)}" y="${base + 16}" text-anchor="middle" font-size="12.5">${esc(s.length > 14 ? s.slice(0, 13) + "…" : s)}</text>`;
+      g += `<text class="ax" x="${cx.toFixed(1)}" y="${base + 30}" text-anchor="middle" font-size="12">${esc((l || "") + (u && u !== "pcs" ? " " + u : ""))}</text></g>`;
+    });
+    $("chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;max-height:170px" role="img" aria-label="On hand by size and length">${g}</svg>`;
+  }
+  function renderDaily() {
     const t = todayIso(), n = 14, W = 1000, H = 92, bw = W / n;
     const src = rows.filter((r) => (!st.size || r.size === st.size) && (!st.combo || comboOf(r) === st.combo));
     const pin = new Map(), pout = new Map();
@@ -794,6 +832,7 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
 
   // ---------- wiring ----------
   document.addEventListener("click", (e) => {
+    const chb = e.target.closest("[data-chart]"); if (chb) { chartMode = chb.dataset.chart; try { localStorage.setItem("xai-yard-chart", chartMode); } catch (er) { /* storage blocked */ } renderChart(); return; }
     const tb = e.target.closest("[data-type]"); if (tb) { stType = tb.dataset.type; try { localStorage.setItem("xai-yard-type", stType); } catch (er) { /* storage blocked */ } st.size = ""; st.combo = ""; render(); return; }
     const rb = e.target.closest("[data-range]"); if (rb) { st.range = rb.dataset.range; render(); return; }
     const kb = e.target.closest("[data-kind]"); if (kb) { st.kind = kb.dataset.kind; render(); return; }
