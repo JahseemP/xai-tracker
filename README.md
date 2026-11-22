@@ -31,3 +31,4 @@ update public.app_secret set passcode = 'new-code' where id = 1;
 It keeps its own data in the `raw_steel` table and does not read or change the manifests.
 Run `raw-steel-setup.sql` once in the Supabase SQL Editor to create the table.
 Bolts (and units like boxes or kegs) need `add-bolts.sql` run once as well.
+The "Received by / Shipped by" column needs `add-received-by.sql` run once (it also includes the bolts columns).
