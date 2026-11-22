@@ -289,6 +289,9 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
   .fields { grid-template-columns: 1fr; }
   .flagrow { grid-template-columns: 1fr; }
 }
+.pagenav { display:inline-flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; background:var(--panel); }
+.pagenav a { padding:8px 14px; color:var(--muted); text-decoration:none; font-weight:500; }
+.pagenav a[aria-current="page"] { background:var(--ink); color:var(--bg); }
 </style>
 </head>
 <body>
@@ -302,6 +305,7 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
       </div>
     </div>
     <div class="actions">
+      <nav class="pagenav" aria-label="Pages"><a href="./" aria-current="page">Shipments</a><a href="yard.html">Raw Steel Yard</a></nav>
       <button class="btn" id="exportBtn" type="button">Export to Excel</button>
       <button class="btn primary" id="newBtn" type="button">+ New manifest</button>
     </div>

@@ -24,3 +24,9 @@ In Supabase, open the SQL Editor and run:
 ```sql
 update public.app_secret set passcode = 'new-code' where id = 1;
 ```
+
+## Raw Steel Yard page
+
+`yard.html` is a separate page (switch with the Shipments / Raw Steel Yard buttons at the top).
+It keeps its own data in the `raw_steel` table and does not read or change the manifests.
+Run `raw-steel-setup.sql` once in the Supabase SQL Editor to create the table.
