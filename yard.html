@@ -329,6 +329,9 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
 .ohbox { border:1px dashed var(--line); border-radius:8px; padding:8px 10px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
 .ohbox .clab { width:100%; }
 .warnb[hidden] { display:none; }
+.ystats > div { padding:5px 12px; } .ystats .v { font-size:18px; line-height:1.15; } .ystats .l { font-size:10px; } .ystats .s { font-size:10.5px; }
+.cbox { padding:6px 10px 2px; }
+.bays { gap:6px; } .bay { padding:5px 9px; gap:2px 8px; } .bay .bar { height:4px; } .bay .bs { font-size:10.5px; }
 </style>
 
 </head>
@@ -516,24 +519,24 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
   }
 
   function renderChart() {
-    const t = todayIso(), n = 14, W = 640, H = 130, bw = W / n;
+    const t = todayIso(), n = 14, W = 1000, H = 92, bw = W / n;
     const src = rows.filter((r) => (!st.size || r.size === st.size) && (!st.combo || comboOf(r) === st.combo));
     const pin = new Map(), pout = new Map();
     src.forEach((r) => { const m = isOut(r) ? pout : pin; m.set(r.rec_date, (m.get(r.rec_date) || 0) + pcs(r)); });
     const ds = []; for (let i = n - 1; i >= 0; i--) ds.push(addDays(t, -i));
     const mx = Math.max(10, ...ds.map((d) => Math.max(pin.get(d) || 0, pout.get(d) || 0)));
-    const half = (bw - 10) / 2;
+    const half = Math.min(18, (bw - 10) / 2);
     let s = "";
     ds.forEach((d, i) => {
-      const x = i * bw + 5;
+      const x = i * bw + bw / 2 - half;
       [[pin.get(d) || 0, "var(--steel)", 0, "received"], [pout.get(d) || 0, "var(--accent)", half, "shipped out"]].forEach(([v, col, off, lab]) => {
-        const h = Math.round((H - 36) * v / mx);
+        const h = Math.round((H - 32) * v / mx);
         s += `<rect x="${(x + off).toFixed(1)}" y="${H - 18 - Math.max(h, 1)}" width="${(half - 1).toFixed(1)}" height="${Math.max(h, 1)}" rx="2" fill="${v ? col : "var(--line)"}"><title>${dayLabel(d)}: ${v} pcs ${lab}</title></rect>`;
-        if (v) s += `<text x="${(x + off + half / 2).toFixed(1)}" y="${H - 22 - h}" text-anchor="middle" font-size="10.5" font-weight="600">${v}</text>`;
+        if (v) s += `<text x="${(x + off + half / 2).toFixed(1)}" y="${H - 22 - h}" text-anchor="middle" font-size="14" font-weight="600">${v}</text>`;
       });
-      s += `<text class="ax" x="${(i * bw + bw / 2).toFixed(1)}" y="${H - 4}" text-anchor="middle" font-size="10">${shortDay(d)}</text>`;
+      s += `<text class="ax" x="${(i * bw + bw / 2).toFixed(1)}" y="${H - 4}" text-anchor="middle" font-size="13">${shortDay(d)}</text>`;
     });
-    $("chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block" role="img" aria-label="Pieces received and shipped out per day, last 14 days">${s}</svg>`;
+    $("chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;max-height:110px" role="img" aria-label="Pieces received and shipped out per day, last 14 days">${s}</svg>`;
   }
 
   // ---------- form ----------
