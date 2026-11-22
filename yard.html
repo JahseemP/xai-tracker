@@ -319,6 +319,16 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
 .lgrid td.n { color:var(--muted); text-align:center; width:24px; } .lgrid tfoot td { font-weight:600; padding-top:8px; }
 .empty { padding:30px 10px; text-align:center; color:var(--muted); }
 @media (max-width: 860px) { .ygrid { grid-template-columns: minmax(0,1fr); } .bays { margin-top:12px; } .ystats { grid-template-columns:repeat(2,minmax(0,1fr)); } .ystats > div { border-bottom:1px solid var(--line); } .ybar .sizes { margin-left:0; } .ytable .hm { display:none; } }
+.in { color: var(--good); } .out { color: var(--warn); }
+.ystats .v.in { color: var(--good); } .ystats .v.out { color: var(--warn); }
+.kind { display:inline-block; font-size:10px; font-weight:700; letter-spacing:.05em; border-radius:4px; padding:1px 5px; }
+.kind.in { background: var(--good-soft); color: var(--good); } .kind.out { background: var(--warn-soft); color: var(--warn); }
+.bay .bs { grid-column:1/-1; font-size:11px; color:var(--muted); }
+.bay.negb { border-color: var(--warn); } .bay.negb .bv { color: var(--warn); }
+.warnb { margin: 0 16px 10px; background: var(--warn-soft); border-color: var(--warn); font-size: 13px; }
+.ohbox { border:1px dashed var(--line); border-radius:8px; padding:8px 10px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.ohbox .clab { width:100%; }
+.warnb[hidden] { display:none; }
 </style>
 
 </head>
@@ -343,16 +353,17 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
       <button class="chip" data-range="30" aria-pressed="false">Last 30 days</button>
       <button class="chip" data-range="all" aria-pressed="true">All dates</button>
     </div>
-    <label class="search"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2"/></svg><input id="q" type="text" placeholder="Search raw steel: size, length, manifest or BOL…" autocomplete="off" data-lpignore="true" data-1p-ignore aria-label="Search raw steel"></label>
+    <label class="search"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2"/></svg><input id="q" type="text" placeholder="Search raw steel: size, length, manifest, BOL or where it shipped…" autocomplete="off" data-lpignore="true" data-1p-ignore aria-label="Search raw steel"></label>
   </div>
   <section class="card">
-    <div class="yhead"><div><h2>Raw steel received</h2><div class="hint">Totals by day, size and length. Separate from the shipment manifests.</div></div>
-      <div class="actions"><button class="btn" id="exportBtn" type="button">Export to Excel</button><button class="btn primary" id="logBtn" type="button">+ Log raw steel received</button></div></div>
+    <div class="yhead"><div><h2>Raw steel yard</h2><div class="hint">Received in, shipped out and on hand, by day, size and length. Separate from the shipment manifests.</div></div>
+      <div class="actions"><button class="btn" id="exportBtn" type="button">Export to Excel</button><button class="btn" id="shipBtn" type="button">− Log shipped out</button><button class="btn primary" id="logBtn" type="button">+ Log received</button></div></div>
+    <div class="banner show warnb" id="negWarn" role="status" hidden></div>
     <div class="ystats" id="stats"></div>
     <div class="ygrid"><div>
-      <div class="ybar"><span class="sizes" id="sizeChips"></span></div>
-      <div class="cbox"><div class="clab">Pieces received per day · last 2 weeks</div><div id="chart"></div></div>
-      <div class="tablewrap"><table class="ytable"><thead><tr><th style="width:8px"></th><th>Size</th><th>Length</th><th class="num">Qty</th><th class="num hm">Lbs each</th><th class="num">Total lbs</th><th class="hm">Manifest / BOL</th></tr></thead><tbody id="rows"></tbody></table></div>
+      <div class="ybar"><button class="chip" data-kind="all" aria-pressed="true">In &amp; out</button><button class="chip" data-kind="in" aria-pressed="false">Received only</button><button class="chip" data-kind="out" aria-pressed="false">Shipped out only</button><span class="sizes" id="sizeChips"></span></div>
+      <div class="cbox"><div class="clab">Pieces per day · last 2 weeks · <span style="color:var(--steel)">■</span> received <span style="color:var(--accent)">■</span> shipped out</div><div id="chart"></div></div>
+      <div class="tablewrap"><table class="ytable"><thead><tr><th style="width:40px"></th><th>Size</th><th>Length</th><th class="num">Qty</th><th class="num hm">Lbs each</th><th class="num">Total lbs</th><th class="hm">Manifest / BOL</th></tr></thead><tbody id="rows"></tbody></table></div>
       <div class="foot" style="padding:8px 0"><span id="showing"></span><span>Click a line to edit or delete it.</span></div>
     </div>
     <aside class="bays" id="bays"></aside></div>
@@ -419,44 +430,60 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
     return s.replace(/\s*ft\b/i, "'");
   }
   function autoEach(size, len) { const p = lbPerFt(normSize(size)), f = feetOf(len); return p && f ? Math.round(p * f) : null; }
-  const lineLbs = (r) => (r.lbs_each == null || r.lbs_each === "" ? null : Number(r.lbs_each) * Number(r.qty || 0));
+  const lineLbs = (r) => (r.lbs_each == null || r.lbs_each === "" ? null : Number(r.lbs_each) * Math.abs(Number(r.qty || 0)));
   const lenSort = (a, b) => (feetOf(a) || 0) - (feetOf(b) || 0) || String(a).localeCompare(String(b));
   const sizeSort = (a, b) => { const pa = a.match(/(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/), pb = b.match(/(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/); if (pa && pb) return Number(pb[1]) - Number(pa[1]) || Number(pb[2]) - Number(pa[2]); return a.localeCompare(b); };
 
   // ---------- state ----------
+  // Received lines have a positive qty; shipped-out lines are stored with a negative qty.
   let rows = [], loaded = false;
-  const st = { range: "all", size: "", combo: "", q: "" };
+  const st = { range: "all", size: "", combo: "", q: "", kind: "all" };
+  const isOut = (r) => Number(r.qty) < 0;
+  const pcs = (r) => Math.abs(Number(r.qty || 0));
+  const comboOf = (r) => r.size + "|" + r.length;
 
-  function filtered() {
+  function filtered(opts = {}) {
     const t = todayIso(), ws = weekStart(), d30 = addDays(t, -29);
     const q = st.q.toLowerCase().trim();
     return rows.filter((r) => {
       if (st.range === "today" && r.rec_date !== t) return false;
       if (st.range === "week" && r.rec_date < ws) return false;
       if (st.range === "30" && r.rec_date < d30) return false;
-      if (st.size && r.size !== st.size) return false;
-      if (st.combo && r.size + "|" + r.length !== st.combo) return false;
-      if (q && !(r.size + " " + r.length + " " + r.ref + " " + r.notes + " " + dayLabel(r.rec_date) + " " + r.rec_date).toLowerCase().replace(/x/g, "x").includes(q)) return false;
+      if (!opts.anyKind && st.kind === "in" && isOut(r)) return false;
+      if (!opts.anyKind && st.kind === "out" && !isOut(r)) return false;
+      if (!opts.anySize && st.size && r.size !== st.size) return false;
+      if (!opts.anySize && st.combo && comboOf(r) !== st.combo) return false;
+      if (q && !(r.size + " " + r.length + " " + r.ref + " " + r.notes + " " + dayLabel(r.rec_date) + " " + r.rec_date + " " + (isOut(r) ? "shipped out" : "received")).toLowerCase().includes(q)) return false;
       return true;
     });
+  }
+  const sumIn = (a) => a.reduce((s, r) => s + (isOut(r) ? 0 : pcs(r)), 0);
+  const sumOut = (a) => a.reduce((s, r) => s + (isOut(r) ? pcs(r) : 0), 0);
+  const wIn = (a) => a.reduce((s, r) => s + (isOut(r) ? 0 : lineLbs(r) || 0), 0);
+  const wOut = (a) => a.reduce((s, r) => s + (isOut(r) ? lineLbs(r) || 0 : 0), 0);
+  function onHandMap() {
+    const m = new Map();
+    rows.forEach((r) => { const k = comboOf(r); const v = m.get(k) || { q: 0, w: 0, inn: 0, out: 0 }; v.q += Number(r.qty || 0); v.w += (isOut(r) ? -1 : 1) * (lineLbs(r) || 0); if (isOut(r)) v.out += pcs(r); else v.inn += pcs(r); m.set(k, v); });
+    return m;
   }
 
   function render() {
     const list = filtered();
     document.querySelectorAll("[data-range]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.range === st.range)));
-    // stats (whole yard, not filtered)
+    document.querySelectorAll("[data-kind]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === st.kind)));
     const ws = weekStart();
-    const sumQ = (a) => a.reduce((s, r) => s + Number(r.qty || 0), 0);
-    const sumW = (a) => a.reduce((s, r) => s + (lineLbs(r) || 0), 0);
-    const days = [...new Set(rows.map((r) => r.rec_date))].sort();
-    const fq = sumQ(list), fw = sumW(list);
+    const wk = rows.filter((r) => r.rec_date >= ws);
+    const oh = onHandMap();
+    const onHand = [...oh.values()].reduce((s, v) => s + v.q, 0), onW = [...oh.values()].reduce((s, v) => s + v.w, 0);
+    const neg = [...oh.entries()].filter(([, v]) => v.q < 0);
     const rangeName = { today: "today", week: "this week", "30": "last 30 days", all: "all dates" }[st.range];
     $("stats").innerHTML = `
-      <div><div class="l">Received this week</div><div class="v">${fmt(sumQ(rows.filter((r) => r.rec_date >= ws)))} pcs</div><div class="s">${shortDay(ws)} – today</div></div>
-      <div><div class="l">Received to date</div><div class="v">${fmt(sumQ(rows))} pcs</div><div class="s">${new Set(rows.map((r) => r.size + "|" + r.length)).size} size/length combos</div></div>
-      <div><div class="l">Weight received</div><div class="v">${fmt(sumW(rows) / 2000, 1)} t</div><div class="s">${fmt(sumW(rows))} lbs</div></div>
-      <div><div class="l">Delivery days</div><div class="v">${days.length}</div><div class="s">${days.length ? "last: " + dayLabel(days[days.length - 1]) : "nothing logged yet"}</div></div>`;
-    // size chips
+      <div><div class="l">On hand now</div><div class="v">${fmt(onHand)} pcs</div><div class="s">${fmt(sumIn(rows))} received − ${fmt(sumOut(rows))} shipped</div></div>
+      <div><div class="l">Weight on hand</div><div class="v">${fmt(onW / 2000, 1)} t</div><div class="s">${fmt(onW)} lbs</div></div>
+      <div><div class="l">Received this week</div><div class="v in">+${fmt(sumIn(wk))} pcs</div><div class="s">${shortDay(ws)} – today</div></div>
+      <div><div class="l">Shipped out this week</div><div class="v out">−${fmt(sumOut(wk))} pcs</div><div class="s">${shortDay(ws)} – today</div></div>`;
+    $("negWarn").hidden = !neg.length;
+    if (neg.length) $("negWarn").innerHTML = `<strong>Check these counts:</strong> more shipped out than received for ${neg.map(([k, v]) => esc(k.replace("|", " × ")) + " (" + fmt(v.q) + ")").join(", ")}. A delivery may not have been logged, or a size or length was typed differently.`;
     const sizes = [...new Set(rows.map((r) => r.size))].sort(sizeSort);
     $("sizeChips").innerHTML = sizes.length ? "Size: " + [["", "All"]].concat(sizes.map((s) => [s, s])).map(([v, l]) => `<button class="chip" data-size="${esc(v)}" aria-pressed="${st.size === v}">${esc(l)}</button>`).join("") : "";
     renderChart();
@@ -466,73 +493,110 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
     const dayKeys = [...byDay.keys()].sort().reverse();
     let h = "";
     dayKeys.forEach((d) => {
-      const ls = byDay.get(d).sort((a, b) => sizeSort(a.size, b.size) || lenSort(a.length, b.length));
-      h += `<tr class="dayrow"><td colspan="3"><strong>${esc(dayLabel(d))}</strong></td><td class="num"><strong>${fmt(sumQ(ls))}</strong></td><td class="hm"></td><td class="num"><strong>${fmt(sumW(ls))}</strong></td><td class="muted hm">${ls.length} line${ls.length === 1 ? "" : "s"}</td></tr>`;
+      const ls = byDay.get(d).sort((a, b) => isOut(a) - isOut(b) || sizeSort(a.size, b.size) || lenSort(a.length, b.length));
+      const qi = sumIn(ls), qo = sumOut(ls);
+      const qtxt = [qi ? `<span class="in">+${fmt(qi)}</span>` : "", qo ? `<span class="out">−${fmt(qo)}</span>` : ""].filter(Boolean).join(" ");
+      const wtxt = [qi ? `<span class="in">+${fmt(wIn(ls))}</span>` : "", qo ? `<span class="out">−${fmt(wOut(ls))}</span>` : ""].filter(Boolean).join(" ");
+      h += `<tr class="dayrow"><td colspan="3"><strong>${esc(dayLabel(d))}</strong></td><td class="num"><strong>${qtxt}</strong></td><td class="hm"></td><td class="num"><strong>${wtxt}</strong></td><td class="muted hm">${ls.length} line${ls.length === 1 ? "" : "s"}</td></tr>`;
       ls.forEach((r) => {
-        h += `<tr class="line" data-id="${esc(r.id)}" tabindex="0"><td></td><td class="mono">${esc(r.size)}</td><td>${esc(r.length)}</td><td class="num">${fmt(r.qty)}</td><td class="num hm">${fmt(r.lbs_each)}</td><td class="num">${fmt(lineLbs(r))}</td><td class="mono muted hm" style="font-size:12px">${esc(r.ref)}${r.notes ? ` <span class="muted" style="font-family:var(--font-sans)">· ${esc(r.notes)}</span>` : ""}</td></tr>`;
+        const o = isOut(r);
+        h += `<tr class="line${o ? " shipped-out" : ""}" data-id="${esc(r.id)}" tabindex="0"><td><span class="kind ${o ? "out" : "in"}" title="${o ? "Shipped out" : "Received"}">${o ? "OUT" : "IN"}</span></td><td class="mono">${esc(r.size)}</td><td>${esc(r.length)}</td><td class="num ${o ? "out" : ""}">${o ? "−" : ""}${fmt(pcs(r))}</td><td class="num hm">${fmt(r.lbs_each)}</td><td class="num ${o ? "out" : ""}">${lineLbs(r) == null ? "–" : (o ? "−" : "") + fmt(lineLbs(r))}</td><td class="mono muted hm" style="font-size:12px">${esc(r.ref)}${r.notes ? ` <span class="muted" style="font-family:var(--font-sans)">· ${esc(r.notes)}</span>` : ""}</td></tr>`;
       });
     });
-    if (!h) h = `<tr><td colspan="7" class="empty">${!loaded ? "Loading…" : rows.length ? "Nothing matches these filters." : "No raw steel logged yet. Use <strong>+ Log raw steel received</strong> to add the first delivery."}</td></tr>`;
+    if (!h) h = `<tr><td colspan="7" class="empty">${!loaded ? "Loading…" : rows.length ? "Nothing matches these filters." : "No raw steel logged yet. Use <strong>+ Log received</strong> to add the first delivery."}</td></tr>`;
     $("rows").innerHTML = h;
-    $("showing").textContent = list.length ? `${fmt(fq)} pcs · ${fmt(fw)} lbs · ${dayKeys.length} day${dayKeys.length === 1 ? "" : "s"} (${rangeName}${st.size ? ", " + st.size : ""}${st.combo ? ", " + st.combo.replace("|", " × ") : ""}) · newest day first` : "";
-    // totals by size+length (respect range + search, not size filters)
-    const base = rows.filter((r) => { const s = st.size, c = st.combo; st.size = ""; st.combo = ""; const ok = filtered().includes(r); st.size = s; st.combo = c; return ok; });
-    const tot = new Map();
-    base.forEach((r) => { const k = r.size + "|" + r.length; tot.set(k, (tot.get(k) || 0) + Number(r.qty || 0)); });
-    const keys = [...tot.keys()].sort((a, b) => { const [sa, la] = a.split("|"), [sb, lb] = b.split("|"); return sizeSort(sa, sb) || lenSort(la, lb); });
-    const mx = Math.max(1, ...tot.values());
-    $("bays").innerHTML = `<h3>Totals by size</h3>` + keys.map((k) => { const [s, l] = k.split("|"); return `<button class="bay" type="button" data-combo="${esc(k)}" aria-pressed="${st.combo === k}"><span class="bn"><span class="mono">${esc(s)}</span>${l ? " × " + esc(l) : ""}</span><span class="bv">${fmt(tot.get(k))}</span><span class="bar"><i style="width:${Math.round(100 * tot.get(k) / mx)}%"></i></span></button>`; }).join("") +
-      `<div class="bay all"><div class="bn"><strong>All raw steel</strong> <span class="muted">(${esc(rangeName)})</span></div><div class="bv">${fmt(sumQ(base))}</div></div><div class="hint" style="margin-top:4px">Click a size to filter the list${st.combo ? ' · <a href="#" id="clearCombo">show all</a>' : ""}.</div>`;
+    const fi = sumIn(list), fo = sumOut(list);
+    $("showing").textContent = list.length ? `${rangeName}${st.size ? ", " + st.size : ""}${st.combo ? ", " + st.combo.replace("|", " × ") : ""}: +${fmt(fi)} received, −${fmt(fo)} shipped · ${dayKeys.length} day${dayKeys.length === 1 ? "" : "s"} · newest first` : "";
+    // on hand by size + length (always the whole yard)
+    const keys = [...oh.keys()].filter((k) => oh.get(k).q !== 0 || st.combo === k).sort((a, b) => { const [sa, la] = a.split("|"), [sb, lb] = b.split("|"); return sizeSort(sa, sb) || lenSort(la, lb); });
+    const mx = Math.max(1, ...keys.map((k) => oh.get(k).inn));
+    const gone = [...oh.keys()].filter((k) => oh.get(k).q === 0 && st.combo !== k).length;
+    $("bays").innerHTML = `<h3>On hand by size</h3>` + keys.map((k) => { const [s, l] = k.split("|"), v = oh.get(k); return `<button class="bay${v.q < 0 ? " negb" : ""}" type="button" data-combo="${esc(k)}" aria-pressed="${st.combo === k}"><span class="bn"><span class="mono">${esc(s)}</span>${l ? " × " + esc(l) : ""}</span><span class="bv">${fmt(v.q)}</span><span class="bar"><i style="width:${Math.max(0, Math.round(100 * v.q / mx))}%"></i></span><span class="bs">${fmt(v.inn)} in${v.out ? " · " + fmt(v.out) + " out" : ""}</span></button>`; }).join("") +
+      `<div class="bay all"><div class="bn"><strong>All raw steel on hand</strong></div><div class="bv">${fmt(onHand)}</div></div><div class="hint" style="margin-top:4px">${gone ? `${gone} size${gone === 1 ? "" : "s"} fully shipped out (hidden). ` : ""}Click a size to see its history${st.combo ? ' · <a href="#" id="clearCombo">show all</a>' : ""}.</div>`;
   }
 
   function renderChart() {
-    const t = todayIso(), n = 14, W = 640, H = 120, bw = W / n;
-    const src = rows.filter((r) => (!st.size || r.size === st.size) && (!st.combo || r.size + "|" + r.length === st.combo));
-    const per = new Map(); src.forEach((r) => per.set(r.rec_date, (per.get(r.rec_date) || 0) + Number(r.qty || 0)));
+    const t = todayIso(), n = 14, W = 640, H = 130, bw = W / n;
+    const src = rows.filter((r) => (!st.size || r.size === st.size) && (!st.combo || comboOf(r) === st.combo));
+    const pin = new Map(), pout = new Map();
+    src.forEach((r) => { const m = isOut(r) ? pout : pin; m.set(r.rec_date, (m.get(r.rec_date) || 0) + pcs(r)); });
     const ds = []; for (let i = n - 1; i >= 0; i--) ds.push(addDays(t, -i));
-    const mx = Math.max(10, ...ds.map((d) => per.get(d) || 0));
+    const mx = Math.max(10, ...ds.map((d) => Math.max(pin.get(d) || 0, pout.get(d) || 0)));
+    const half = (bw - 10) / 2;
     let s = "";
     ds.forEach((d, i) => {
-      const v = per.get(d) || 0, h = Math.round((H - 34) * v / mx), x = i * bw;
-      s += `<rect x="${(x + 6).toFixed(1)}" y="${H - 18 - Math.max(h, 1)}" width="${(bw - 12).toFixed(1)}" height="${Math.max(h, 1)}" rx="2" fill="${v ? "var(--steel)" : "var(--line)"}"><title>${dayLabel(d)}: ${v} pcs</title></rect>`;
-      if (v) s += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - 22 - h}" text-anchor="middle" font-size="11" font-weight="600">${v}</text>`;
-      s += `<text class="ax" x="${(x + bw / 2).toFixed(1)}" y="${H - 4}" text-anchor="middle" font-size="10">${shortDay(d)}</text>`;
+      const x = i * bw + 5;
+      [[pin.get(d) || 0, "var(--steel)", 0, "received"], [pout.get(d) || 0, "var(--accent)", half, "shipped out"]].forEach(([v, col, off, lab]) => {
+        const h = Math.round((H - 36) * v / mx);
+        s += `<rect x="${(x + off).toFixed(1)}" y="${H - 18 - Math.max(h, 1)}" width="${(half - 1).toFixed(1)}" height="${Math.max(h, 1)}" rx="2" fill="${v ? col : "var(--line)"}"><title>${dayLabel(d)}: ${v} pcs ${lab}</title></rect>`;
+        if (v) s += `<text x="${(x + off + half / 2).toFixed(1)}" y="${H - 22 - h}" text-anchor="middle" font-size="10.5" font-weight="600">${v}</text>`;
+      });
+      s += `<text class="ax" x="${(i * bw + bw / 2).toFixed(1)}" y="${H - 4}" text-anchor="middle" font-size="10">${shortDay(d)}</text>`;
     });
-    $("chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block" role="img" aria-label="Pieces received per day, last 14 days">${s}</svg>`;
+    $("chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block" role="img" aria-label="Pieces received and shipped out per day, last 14 days">${s}</svg>`;
   }
 
   // ---------- form ----------
-  let editing = null; // null = new delivery, else row id
+  let editing = null, formKind = "in";
   function lineRow(i, r = {}) {
     return `<tr data-i="${i}"><td class="n">${i + 1}</td>
       <td><input data-k="size" value="${esc(r.size || "")}" placeholder="W21x48" list="sizeList" aria-label="Size, line ${i + 1}"></td>
-      <td><input data-k="length" value="${esc(r.length || "")}" placeholder="40'" aria-label="Length, line ${i + 1}"></td>
-      <td><input data-k="qty" value="${esc(r.qty == null ? "" : r.qty)}" inputmode="numeric" placeholder="0" aria-label="Quantity, line ${i + 1}"></td>
+      <td><input data-k="length" value="${esc(r.length || "")}" placeholder="40'" list="lenList" aria-label="Length, line ${i + 1}"></td>
+      <td><input data-k="qty" value="${esc(r.qty == null ? "" : Math.abs(r.qty))}" inputmode="numeric" placeholder="0" aria-label="Quantity, line ${i + 1}"></td>
       <td><input data-k="lbs_each" value="${esc(r.lbs_each == null ? "" : r.lbs_each)}" inputmode="decimal" placeholder="auto" aria-label="Lbs each, line ${i + 1}" data-auto="${r.lbs_each == null ? 1 : 0}"></td></tr>`;
   }
-  function openForm(id) {
+  function setKind(k) {
+    formKind = k;
+    document.querySelectorAll("[data-fkind]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.fkind === k)));
+    $("f-date-lab").textContent = k === "out" ? "Date shipped" : "Date received";
+    $("f-ref-lab").textContent = k === "out" ? "Manifest / BOL no. it shipped on" : "Manifest / BOL no.";
+    $("f-notes-lab").textContent = k === "out" ? "Shipped to / notes" : "Notes";
+    $("f-notes").placeholder = k === "out" ? "e.g. STI Metal Fab, Springdale" : "Optional";
+    if (!editing) $("sheetTitle").textContent = k === "out" ? "Log raw steel shipped out" : "Log raw steel received";
+    $("saveBtn").textContent = k === "out" ? "Subtract from yard" : "Add to yard";
+    $("ohHint").hidden = k !== "out";
+    updateTotals();
+  }
+  function openForm(id, kind) {
     editing = id || null;
     const r = id ? rows.find((x) => x.id === id) : null;
     const lines = r ? [r] : [{}, {}, {}, {}];
+    const oh = onHandMap();
     const sizes = [...new Set(rows.map((x) => x.size).concat(["W21x48", "W14x109", "W14x99", "W14x90"]))].sort(sizeSort);
-    $("sheetTitle").textContent = r ? "Edit line" : "Log raw steel received";
+    const lens = [...new Set(rows.map((x) => x.length).filter(Boolean))].sort(lenSort);
+    const ohList = [...oh.entries()].filter(([, v]) => v.q > 0).sort((a, b) => { const [sa, la] = a[0].split("|"), [sb, lb] = b[0].split("|"); return sizeSort(sa, sb) || lenSort(la, lb); });
+    $("sheetTitle").textContent = r ? "Edit line" : "";
     $("sheetKicker").textContent = r ? dayLabel(r.rec_date) : "Raw steel · SOLC Laydown Yard";
     $("delBtn").hidden = !r;
     $("sheetBody").innerHTML = `
+      <div class="ybar" style="padding:0"><span class="muted" style="font-size:12.5px">This is:</span><button class="chip" type="button" data-fkind="in">Received into yard (+)</button><button class="chip" type="button" data-fkind="out">Shipped out of yard (−)</button></div>
       <div class="fields">
-        <div class="field"><label for="f-date">Date received</label><input id="f-date" type="date" value="${esc(r ? r.rec_date : todayIso())}"></div>
-        <div class="field"><label for="f-ref">Manifest / BOL no.</label><input id="f-ref" value="${esc(r ? r.ref : "")}" placeholder="e.g. Mill BOL 55821"></div>
-        <div class="field wide"><label for="f-notes">Notes</label><input id="f-notes" value="${esc(r ? r.notes : "")}" placeholder="Optional"></div>
+        <div class="field"><label for="f-date" id="f-date-lab">Date received</label><input id="f-date" type="date" value="${esc(r ? r.rec_date : todayIso())}"></div>
+        <div class="field"><label for="f-ref" id="f-ref-lab">Manifest / BOL no.</label><input id="f-ref" value="${esc(r ? r.ref : "")}" placeholder="e.g. MAN-LA-26-3335-0150"></div>
+        <div class="field wide"><label for="f-notes" id="f-notes-lab">Notes</label><input id="f-notes" value="${esc(r ? r.notes : "")}" placeholder="Optional"></div>
       </div>
+      <div class="ohbox" id="ohHint" hidden><div class="clab" style="margin-bottom:4px">On hand now · tap one to add it as a line</div>${ohList.length ? ohList.map(([k, v]) => `<button class="chip" type="button" data-pick="${esc(k)}">${esc(k.replace("|", " × "))} <span class="n">${fmt(v.q)}</span></button>`).join(" ") : '<span class="muted">Nothing on hand.</span>'}</div>
       <div><table class="lgrid"><thead><tr><th></th><th>Size</th><th>Length</th><th style="width:90px">Qty</th><th style="width:110px">Lbs each</th></tr></thead>
         <tbody id="lgBody">${lines.map((l, i) => lineRow(i, l)).join("")}</tbody>
         <tfoot><tr><td></td><td colspan="2">${r ? "" : `<button class="btn small" id="moreLines" type="button">+ 4 more lines</button>`}</td><td class="num" id="ftQty"></td><td class="num" id="ftLbs"></td></tr></tfoot></table>
         <datalist id="sizeList">${sizes.map((s) => `<option value="${esc(s)}">`).join("")}</datalist>
-        <p class="hint">Lbs each fills in automatically for W-shapes from size × length (e.g. W21x48 × 40' = 1,920). You can type over it.</p></div>`;
+        <datalist id="lenList">${lens.map((s) => `<option value="${esc(s)}">`).join("")}</datalist>
+        <div class="pcerr" id="overWarn" role="alert"></div>
+        <p class="hint">Type quantities as plain numbers; shipped-out lines are subtracted automatically. Lbs each fills in for W-shapes from size × length (e.g. W21x48 × 40' = 1,920).</p></div>`;
     const body = $("lgBody");
     body.addEventListener("input", onLineInput);
     if ($("moreLines")) $("moreLines").onclick = () => { const n = body.children.length; body.insertAdjacentHTML("beforeend", [0, 1, 2, 3].map((k) => lineRow(n + k)).join("")); };
-    updateTotals();
+    $("sheetBody").querySelectorAll("[data-fkind]").forEach((b) => (b.onclick = () => setKind(b.dataset.fkind)));
+    $("sheetBody").querySelectorAll("[data-pick]").forEach((b) => (b.onclick = () => {
+      const [s, l] = b.dataset.pick.split("|"), v = oh.get(b.dataset.pick);
+      let tr = [...body.children].find((x) => !x.querySelector('[data-k="size"]').value.trim() && !x.querySelector('[data-k="qty"]').value.trim());
+      if (!tr) { body.insertAdjacentHTML("beforeend", lineRow(body.children.length)); tr = body.lastElementChild; }
+      const each = rows.find((x) => comboOf(x) === b.dataset.pick && x.lbs_each != null);
+      tr.querySelector('[data-k="size"]').value = s; tr.querySelector('[data-k="length"]').value = l; tr.querySelector('[data-k="qty"]').value = v.q;
+      const le = tr.querySelector('[data-k="lbs_each"]'); le.value = each ? each.lbs_each : (autoEach(s, l) ?? ""); le.dataset.auto = each ? "0" : "1";
+      tr.querySelector('[data-k="qty"]').select(); tr.querySelector('[data-k="qty"]').focus(); updateTotals();
+    }));
+    setKind(kind || (r && isOut(r) ? "out" : "in"));
     $("sheet").classList.add("open"); $("sheet").setAttribute("aria-hidden", "false"); $("scrim").classList.add("open");
     setTimeout(() => (r ? $("f-date") : body.querySelector("input")).focus(), 60);
   }
@@ -548,20 +612,31 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
   function readLines() {
     return [...$("lgBody").children].map((tr) => {
       const v = (k) => tr.querySelector(`[data-k="${k}"]`).value.trim();
-      return { size: v("size"), length: v("length"), qty: v("qty"), lbs_each: v("lbs_each") };
+      return { size: v("size"), length: v("length"), qty: v("qty").replace(/^[-−+]/, ""), lbs_each: v("lbs_each") };
     }).filter((l) => l.size || l.length || l.qty);
   }
+  function overShip(ls) {
+    if (formKind !== "out") return [];
+    const oh = onHandMap(), want = new Map();
+    ls.forEach((l) => { const k = normSize(l.size) + "|" + normLen(l.length); want.set(k, (want.get(k) || 0) + (Number(String(l.qty).replace(/,/g, "")) || 0)); });
+    const cur = editing ? rows.find((x) => x.id === editing) : null;
+    return [...want.entries()].map(([k, q]) => { let have = (oh.get(k) || { q: 0 }).q; if (cur && comboOf(cur) === k) have -= Number(cur.qty); return [k, q, have]; }).filter(([, q, have]) => q > have);
+  }
   function updateTotals() {
+    if (!$("lgBody")) return;
     const ls = readLines(); let q = 0, w = 0;
     ls.forEach((l) => { const n = Number(l.qty) || 0; q += n; if (l.lbs_each) w += n * Number(String(l.lbs_each).replace(/,/g, "")); });
-    $("ftQty").textContent = q ? fmt(q) + " pcs" : ""; $("ftLbs").textContent = w ? fmt(w) + " lbs" : "";
+    const sg = formKind === "out" ? "−" : "+";
+    $("ftQty").textContent = q ? sg + fmt(q) + " pcs" : ""; $("ftLbs").textContent = w ? sg + fmt(w) + " lbs" : "";
+    const ov = overShip(ls);
+    $("overWarn").textContent = ov.length ? "More than what's on hand: " + ov.map(([k, q, have]) => `${k.replace("|", " × ")} (shipping ${q}, on hand ${Math.max(0, have)})`).join("; ") + ". You can still save it." : "";
   }
   function closeForm() { $("sheet").classList.remove("open"); $("sheet").setAttribute("aria-hidden", "true"); $("scrim").classList.remove("open"); editing = null; }
   const newId = () => "rs-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
 
   async function saveForm() {
     const date = $("f-date").value, ref = $("f-ref").value.trim(), notes = $("f-notes").value.trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { toast("Pick the date it was received."); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { toast(formKind === "out" ? "Pick the date it shipped." : "Pick the date it was received."); return; }
     const ls = readLines();
     if (!ls.length) { toast("Add at least one line."); return; }
     for (const l of ls) {
@@ -569,11 +644,14 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
       if (!/^\d+$/.test(String(l.qty).replace(/,/g, "")) || Number(String(l.qty).replace(/,/g, "")) <= 0) { toast(`Check the quantity for ${l.size}.`); return; }
       if (l.lbs_each && isNaN(Number(String(l.lbs_each).replace(/,/g, "")))) { toast(`Lbs each for ${l.size} isn't a number.`); return; }
     }
-    const out = ls.map((l, i) => ({ id: editing && i === 0 ? editing : newId(), rec_date: date, size: normSize(l.size), length: normLen(l.length), qty: Number(String(l.qty).replace(/,/g, "")), lbs_each: l.lbs_each ? String(Number(String(l.lbs_each).replace(/,/g, ""))) : "", ref, notes }));
+    const sign = formKind === "out" ? -1 : 1;
+    const out = ls.map((l, i) => ({ id: editing && i === 0 ? editing : newId(), rec_date: date, size: normSize(l.size), length: normLen(l.length), qty: sign * Number(String(l.qty).replace(/,/g, "")), lbs_each: l.lbs_each ? String(Number(String(l.lbs_each).replace(/,/g, ""))) : "", ref, notes }));
     $("saveBtn").disabled = true;
+    const wasEdit = !!editing;
     try {
       await withCode(async (code) => { for (const row of out) await rest("/rest/v1/rpc/save_raw_steel", { method: "POST", body: JSON.stringify({ p_code: code, p_row: row }) }); });
-      closeForm(); toast(editing ? "Line updated." : `Logged ${fmt(out.reduce((s, r) => s + r.qty, 0))} pcs for ${dayLabel(date)}.`);
+      const n = out.reduce((s, r) => s + Math.abs(r.qty), 0);
+      closeForm(); toast(wasEdit ? "Line updated." : sign < 0 ? `Subtracted ${fmt(n)} pcs shipped ${dayLabel(date)}.` : `Added ${fmt(n)} pcs received ${dayLabel(date)}.`);
       await refresh();
     } catch (e) { if (e.code !== "cancelled") toast(saveErr(e)); }
     finally { $("saveBtn").disabled = false; }
@@ -585,7 +663,7 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
     $("delBtn").dataset.armed = ""; $("delBtn").textContent = "Delete line";
     try {
       await withCode((code) => rest("/rest/v1/rpc/delete_raw_steel", { method: "POST", body: JSON.stringify({ p_code: code, p_id: editing }) }));
-      closeForm(); toast(`Deleted ${r ? r.qty + " × " + r.size + " " + r.length : "line"}.`); await refresh();
+      closeForm(); toast(`Deleted ${r ? pcs(r) + " × " + r.size + " " + r.length + (isOut(r) ? " (shipped out)" : " (received)") : "line"}.`); await refresh();
     } catch (e) { if (e.code !== "cancelled") toast(saveErr(e)); }
   }
   const saveErr = (e) => (/raw_steel|function|schema cache/i.test(e.message || "") ? "The raw steel table isn't set up yet. Run raw-steel-setup.sql in Supabase." : "Couldn't save: " + (e.message || "connection problem"));
@@ -593,17 +671,20 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
   // ---------- export ----------
   function exportXlsx() {
     if (!window.XLSX) { toast("Excel export didn't load. Check your connection."); return; }
-    const list = filtered().slice().sort((a, b) => a.rec_date.localeCompare(b.rec_date) || sizeSort(a.size, b.size) || lenSort(a.length, b.length));
-    const data = [["Date received", "Size", "Length", "Qty", "Lbs each", "Total lbs", "Manifest / BOL", "Notes"]].concat(list.map((r) => [parseIso(r.rec_date), r.size, r.length, Number(r.qty), r.lbs_each === "" || r.lbs_each == null ? null : Number(r.lbs_each), lineLbs(r), r.ref, r.notes]));
-    const ws = XLSX.utils.aoa_to_sheet(data, { cellDates: true });
-    ws["!cols"] = [{ wch: 13 }, { wch: 10 }, { wch: 9 }, { wch: 7 }, { wch: 10 }, { wch: 11 }, { wch: 24 }, { wch: 30 }];
-    for (let i = 1; i < data.length; i++) { const c = ws[XLSX.utils.encode_cell({ r: i, c: 0 })]; if (c) c.z = "m/d/yyyy"; }
-    const tot = new Map(); list.forEach((r) => { const k = r.rec_date + "|" + r.size + "|" + r.length; const t = tot.get(k) || { q: 0, w: 0 }; t.q += Number(r.qty); t.w += lineLbs(r) || 0; tot.set(k, t); });
-    const d2 = [["Date received", "Size", "Length", "Qty", "Total lbs"]].concat([...tot.entries()].map(([k, t]) => { const [d, s, l] = k.split("|"); return [parseIso(d), s, l, t.q, t.w || null]; }));
-    const ws2 = XLSX.utils.aoa_to_sheet(d2, { cellDates: true }); ws2["!cols"] = [{ wch: 13 }, { wch: 10 }, { wch: 9 }, { wch: 7 }, { wch: 11 }];
-    for (let i = 1; i < d2.length; i++) { const c = ws2[XLSX.utils.encode_cell({ r: i, c: 0 })]; if (c) c.z = "m/d/yyyy"; }
-    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws2, "Daily by size"); XLSX.utils.book_append_sheet(wb, ws, "All lines");
-    XLSX.writeFile(wb, `raw-steel-received-${todayIso()}.xlsx`);
+    const dateCells = (ws, n) => { for (let i = 1; i < n; i++) { const c = ws[XLSX.utils.encode_cell({ r: i, c: 0 })]; if (c && c.t === "d") c.z = "m/d/yyyy"; } };
+    const oh = onHandMap();
+    const ohKeys = [...oh.keys()].sort((a, b) => { const [sa, la] = a.split("|"), [sb, lb] = b.split("|"); return sizeSort(sa, sb) || lenSort(la, lb); });
+    const d0 = [["Size", "Length", "Received", "Shipped out", "On hand", "Lbs on hand"]].concat(ohKeys.map((k) => { const [s, l] = k.split("|"), v = oh.get(k); return [s, l, v.inn, v.out, v.q, v.w || null]; }));
+    d0.push(["Total", "", sumIn(rows), sumOut(rows), d0.slice(1).reduce((s, r) => s + r[4], 0), d0.slice(1).reduce((s, r) => s + (r[5] || 0), 0)]);
+    const ws0 = XLSX.utils.aoa_to_sheet(d0); ws0["!cols"] = [{ wch: 10 }, { wch: 9 }, { wch: 10 }, { wch: 12 }, { wch: 9 }, { wch: 12 }];
+    const list = filtered().slice().sort((a, b) => a.rec_date.localeCompare(b.rec_date) || isOut(a) - isOut(b) || sizeSort(a.size, b.size) || lenSort(a.length, b.length));
+    const tot = new Map(); list.forEach((r) => { const k = r.rec_date + "|" + r.size + "|" + r.length; const t = tot.get(k) || { i: 0, o: 0 }; if (isOut(r)) t.o += pcs(r); else t.i += pcs(r); tot.set(k, t); });
+    const d1 = [["Date", "Size", "Length", "Received", "Shipped out", "Net"]].concat([...tot.entries()].map(([k, t]) => { const [d, s, l] = k.split("|"); return [parseIso(d), s, l, t.i || null, t.o || null, t.i - t.o]; }));
+    const ws1 = XLSX.utils.aoa_to_sheet(d1, { cellDates: true }); ws1["!cols"] = [{ wch: 11 }, { wch: 10 }, { wch: 9 }, { wch: 10 }, { wch: 12 }, { wch: 7 }]; dateCells(ws1, d1.length);
+    const d2 = [["Date", "Type", "Size", "Length", "Qty (+in / −out)", "Lbs each", "Total lbs", "Manifest / BOL", "Notes"]].concat(list.map((r) => [parseIso(r.rec_date), isOut(r) ? "Shipped out" : "Received", r.size, r.length, Number(r.qty), r.lbs_each == null || r.lbs_each === "" ? null : Number(r.lbs_each), lineLbs(r) == null ? null : (isOut(r) ? -1 : 1) * lineLbs(r), r.ref, r.notes]));
+    const ws2 = XLSX.utils.aoa_to_sheet(d2, { cellDates: true }); ws2["!cols"] = [{ wch: 11 }, { wch: 11 }, { wch: 10 }, { wch: 9 }, { wch: 14 }, { wch: 10 }, { wch: 11 }, { wch: 24 }, { wch: 30 }]; dateCells(ws2, d2.length);
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws0, "On hand"); XLSX.utils.book_append_sheet(wb, ws1, "Daily by size"); XLSX.utils.book_append_sheet(wb, ws2, "All lines");
+    XLSX.writeFile(wb, `raw-steel-yard-${todayIso()}.xlsx`);
   }
 
   // ---------- Supabase ----------
@@ -653,6 +734,7 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
   // ---------- wiring ----------
   document.addEventListener("click", (e) => {
     const rb = e.target.closest("[data-range]"); if (rb) { st.range = rb.dataset.range; render(); return; }
+    const kb = e.target.closest("[data-kind]"); if (kb) { st.kind = kb.dataset.kind; render(); return; }
     const sb = e.target.closest("[data-size]"); if (sb) { st.size = sb.dataset.size; st.combo = ""; render(); return; }
     const cb = e.target.closest("[data-combo]"); if (cb) { st.combo = st.combo === cb.dataset.combo ? "" : cb.dataset.combo; st.size = ""; render(); return; }
     if (e.target.id === "clearCombo") { e.preventDefault(); st.combo = ""; render(); return; }
@@ -662,7 +744,8 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
   let qT; $("q").addEventListener("input", (e) => { clearTimeout(qT); qT = setTimeout(() => { st.q = e.target.value; render(); }, 180); });
   const clearSearch = () => { $("q").value = ""; st.q = ""; };
   window.addEventListener("pageshow", () => { clearSearch(); render(); });
-  $("logBtn").onclick = () => openForm(null);
+  $("logBtn").onclick = () => openForm(null, "in");
+  $("shipBtn").onclick = () => openForm(null, "out");
   $("exportBtn").onclick = exportXlsx;
   $("closeSheet").onclick = $("cancelBtn").onclick = $("scrim").onclick = closeForm;
   $("saveBtn").onclick = saveForm;
