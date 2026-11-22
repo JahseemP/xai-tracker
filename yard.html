@@ -321,6 +321,11 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
 .empty { padding:30px 10px; text-align:center; color:var(--muted); }
 @media (max-width: 860px) { .ygrid { grid-template-columns: minmax(0,1fr); } .bays { margin-top:12px; } .ystats { grid-template-columns:repeat(2,minmax(0,1fr)); } .ystats > div { border-bottom:1px solid var(--line); } .ybar .sizes { margin-left:0; } .ytable .hm { display:none; } }
 .ystats .v { overflow-wrap:anywhere; }
+.ystats { margin: 4px 16px 8px; }
+.ystats > div { padding:3px 10px 4px; display:flex; flex-wrap:wrap; align-items:baseline; column-gap:6px; }
+.ystats .l { width:100%; font-size:9.5px; line-height:1.3; }
+.ystats .v { font-size:15px; line-height:1.2; }
+.ystats .s { font-size:10px; }
 .chead { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:2px; }
 .seg { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
 .seg button { border:0; background:transparent; padding:3px 10px; font-size:12px; cursor:pointer; color:var(--muted); }
