@@ -357,6 +357,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
 .chk { display:flex; gap:8px; align-items:center; margin-top:6px; font-size:13px; }
 .kind.drop { background: var(--good-soft); color: var(--good); }
 .dropl { color: var(--good); }
+.feedinfo { margin-top:2px; } .feedinfo:empty { display:none; }
 .lastcut { font-weight:600; color:var(--ink); } .lastcut.never { color:var(--muted); font-weight:500; } .lastcut.old { color:var(--warn); }
 .kind.fab { background: color-mix(in srgb, var(--c3) 18%, transparent); color: var(--c3); }
 .kind.in { background: var(--good-soft); color: var(--good); } .kind.out { background: var(--warn-soft); color: var(--warn); }
@@ -386,7 +387,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
       <details class="datamenu" id="dataMenu"><summary class="btn">Data <span aria-hidden="true">▾</span></summary>
         <div class="dmpanel" role="menu">
           <button class="btn fabbtn" id="fabBtn" type="button" role="menuitem" title="Upload the fab tracker (.xlsx). Pieces marked Fab complete subtract from the yard.">⇪ Upload fab tracker</button>
-          <a class="btn" id="fabTpl" role="menuitem" href="fab-tracker-template.xlsx" download="JP Fab Tracker.xlsx">JP Fab Tracker</a>
+          <a class="btn" id="fabTpl" role="menuitem" href="fab-tracker.xlsm" download="JP Fab Tracker.xlsm">JP Fab Tracker</a>
         </div></details><input type="file" id="fabFile" accept=".xlsx,.xlsm,.xls,.ods,.csv" hidden>
       <nav class="pagenav" aria-label="Pages"><a href="./">Shipments</a><a href="yard.html" aria-current="page">Yard Inventory</a></nav>
     </div>
@@ -401,7 +402,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
     <label class="search"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2"/></svg><input id="q" type="text" placeholder="Search the yard: size, length, manifest, BOL or where it shipped…" autocomplete="off" data-lpignore="true" data-1p-ignore aria-label="Search the yard"></label>
   </div>
   <section class="card">
-    <div class="yhead"><div><div class="tabs" role="tablist" aria-label="What to show" style="margin-bottom:8px"><button role="tab" data-type="steel" aria-selected="true">Raw steel</button><button role="tab" data-type="bolts" aria-selected="false">Bolts</button></div><h2 id="yTitle">Raw steel</h2><div class="hint">Received in, shipped out and on hand, by day and size. Separate from the shipment manifests.</div></div>
+    <div class="yhead"><div><div class="tabs" role="tablist" aria-label="What to show" style="margin-bottom:8px"><button role="tab" data-type="steel" aria-selected="true">Raw steel</button><button role="tab" data-type="bolts" aria-selected="false">Bolts</button></div><h2 id="yTitle">Raw steel</h2><div class="hint">Received in, shipped out and on hand, by day and size. Separate from the shipment manifests.</div><div class="hint feedinfo" id="feedInfo"></div></div>
       <div class="actions"><button class="btn" id="exportBtn" type="button">Export to Excel</button><button class="btn" id="shipBtn" type="button">− Log shipped out</button><button class="btn primary" id="logBtn" type="button">+ Log received</button></div></div>
     <div class="banner show warnb" id="negWarn" role="status" hidden></div>
     <div class="ystats" id="stats"></div>
@@ -582,6 +583,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
     document.querySelectorAll("[data-type]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.type === stType)));
     $("yTitle").textContent = stType === "bolts" ? "Bolts" : "Raw steel";
     $("thBy").textContent = st.kind === "fab" ? "Completed by" : st.kind === "out" ? "Shipped by" : st.kind === "in" ? "Received by" : "Received / shipped by";
+    $("feedInfo").innerHTML = !isBolt(stType) && feeds.size ? "Fab tracker last sent: " + [...feeds.values()].map((f) => { const d = new Date(f.sent); return `<strong>${esc(f.sheet)}</strong> ${isNaN(d) ? "" : esc(d.toLocaleString("en-US", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }))}${f.by ? " by " + esc(f.by) : ""}${f.via === "excel" ? " (Excel button)" : ""}`; }).join(" · ") : "";
     $("thSize").textContent = T().sizeH; $("thLen").textContent = T().lenH;
     document.querySelectorAll("[data-range]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.range === st.range)));
     document.querySelectorAll("[data-kind]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === st.kind)));
@@ -808,7 +810,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
     const ov = overShip(ls);
     $("overWarn").textContent = ov.length ? "More than what's on hand: " + ov.map(([k, q, have]) => `${labOf(k)} (shipping ${q}, on hand ${Math.max(0, have)})`).join("; ") + ". You can still save it." : "";
   }
-  function closeForm() { sheetMode = "form"; $("sheet").classList.remove("open"); $("sheet").setAttribute("aria-hidden", "true"); $("scrim").classList.remove("open"); editing = null; }
+  function closeForm() { if (fabSettingsBefore) { fabSettings = fabSettingsBefore; fabSettingsBefore = null; } sheetMode = "form"; $("sheet").classList.remove("open"); $("sheet").setAttribute("aria-hidden", "true"); $("scrim").classList.remove("open"); editing = null; }
   const newId = () => "rs-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
 
   async function saveForm() {
@@ -894,38 +896,40 @@ details.ign summary { cursor:pointer; color:var(--muted); }
     }
     return out;
   }
-  async function onFabFile(file) {
-    if (!file) return;
-    if (!window.XLSX) { toast("Excel reader didn't load. Check your connection."); return; }
-    let wb; try { wb = XLSX.read(await file.arrayBuffer(), { cellDates: true }); } catch (e) { toast("Couldn't read that file. Save it as .xlsx and try again."); return; }
-    const sheets = readFabSheets(wb);
-    if (!sheets.length) { toast("Couldn't find a fab tracker in that file. A sheet needs Piece Mark and Size (or Main Material) columns.", 5500); return; }
-    const pieces = [];
-    for (const S of sheets) {
-      const { col } = S, get = (r, i) => (i >= 0 ? r[i] : "");
-      const sk = slug(S.sheet), seen = new Map();
-      for (const { r, line } of S.rows) {
-        const mark = String(get(r, col.mark) || "").trim(); if (!mark) continue;
-        const area = String(get(r, col.area) || "").trim();
-        const base = "fab-" + sk + "-" + (area ? slug(area) + "-" : "") + slug(mark);
-        const n = (seen.get(base) || 0) + 1; seen.set(base, n);
-        const fabDate = cellDate(get(r, col.fabDate));
-        const statuses = col.status.map((i) => String(r[i] || "").trim()).filter(Boolean);
-        const stageDone = col.stagesDone.some((i) => /^done|complete/i.test(String(r[i] || "").trim()));
-        const stageTxt = String(get(r, col.stage) || "");
-        const done = !!fabDate || stageDone || /galv|ship|complete|install/i.test(stageTxt) || statuses.some((s) => DONE_RE.test(s) && !NOT_DONE_RE.test(s));
-        const qtyRaw = String(get(r, col.qty) ?? "").replace(/,/g, "").trim();
-        pieces.push({ id: base + (n > 1 ? "-" + n : ""), sheet: S.sheet, sk, line, mark, area, done, fabDate,
-          size: normSize(get(r, col.size)), len: normLen(String(get(r, col.len) || "").trim()), qty: qtyRaw === "" ? 1 : Number(qtyRaw),
-          by: String(get(r, col.by) || "").trim(), raw: String(get(r, col.raw) || "").trim() });
-      }
-    }
-    fabParsed = { file: file.name, sheets: sheets.map((S) => ({ name: S.sheet, sk: slug(S.sheet), hasDates: S.col.fabDate >= 0 })), pieces };
-    try { const r = await rest("/rest/v1/app_settings?select=data&id=eq.fab-import"); if (r && r.length) fabSettings = { ...fabSettings, ...r[0].data, cutoff: { ...(r[0].data.cutoff || {}) } }; } catch (e) { /* use defaults */ }
-    fabParsed.sheets.forEach((S) => { fabSettings.cutoff[S.sk] = cutFor(S.sk); });
-    buildFabPlan(); openImportPreview();
+  // ---- tracker feeds ----
+  // The tracker's fab-complete rows are kept in app_settings (id "fab-feed-<sheet>"). They're sent by the
+  // "Update app" button in the Excel tracker, or by uploading the file here. The yard's FAB and DROP lines are
+  // worked out from them every time the page loads, so a tracker can be sent again and again without double counting.
+  const FEED_PREFIX = "fab-feed-";
+  let storedRows = [], feeds = new Map(), fabSettingsBefore = null;
+  function piecesFromFeed(f) {
+    const sk = slug(f.sheet), seen = new Map();
+    return (f.rows || []).filter((x) => x && x[1]).map((x) => {
+      const [area, mark, size, len, raw, qty, fabDate, by, line] = x;
+      const base = "fab-" + sk + "-" + (area ? slug(area) + "-" : "") + slug(mark);
+      const n = (seen.get(base) || 0) + 1; seen.set(base, n);
+      const q = String(qty ?? "").replace(/,/g, "").trim();
+      return { id: base + (n > 1 ? "-" + n : ""), sheet: f.sheet, sk, line: Number(line) || 0, mark: String(mark), area: String(area || ""), done: true,
+        fabDate: cellDate(fabDate), size: normSize(size), len: normLen(String(len || "").trim()), qty: q === "" ? 1 : Number(q), by: String(by || "").trim(), raw: String(raw || "").trim() };
+    });
   }
-  // Decides, with the current options, which pieces subtract from the yard.
+  // A feed only carries fab-complete pieces finished on/after FAB_START (or with no date).
+  function feedFromPieces(sheet, pieces, file) {
+    const done = pieces.filter((p) => p.done), keep = done.filter((p) => !p.fabDate || p.fabDate >= FAB_START);
+    return { v: 1, sheet, sent: new Date().toISOString(), via: "upload", file: file || "", total: pieces.length, done: done.length, before: done.length - keep.length,
+      rows: keep.map((p) => [p.area, p.mark, p.size, p.len, p.raw, p.qty, p.fabDate, p.by, p.line]) };
+  }
+  const fedSheet = (r, map) => isFab(r) && [...map.keys()].some((sk) => r.id.startsWith("fab-" + sk + "-"));
+  function derive(feedMap) {
+    const base = storedRows.filter((r) => !fedSheet(r, feedMap)); // stored lines for fed sheets are replaced by the feed
+    const pieces = [].concat(...[...feedMap.values()].map(piecesFromFeed));
+    return { base, ...simulateCuts(pieces, base) };
+  }
+  function recompute() {
+    if (!feeds.size) { allRows = storedRows.slice(); return; }
+    const d = derive(feeds); allRows = d.base.concat(d.lines);
+  }
+
   // ---- cutting: which bar each fab piece came from, and the drop left over ----
   const DROP_MIN_FT = 5, KERF_FT = 0.125 / 12; // drops 5 ft and longer go back to the yard; 1/8" saw kerf per cut
   function fmtFeet(ft) {
@@ -935,29 +939,22 @@ details.ign summary { cursor:pointer; color:var(--muted); }
     return !inch && !frac ? f + "'" : `${f}'-${inch}${frac ? " " + frac : ""}"`;
   }
   const lenKey = (l) => slug(l).slice(0, 20) || "na";
-  function buildFabPlan() {
-    const P = fabParsed, sks = new Set(P.sheets.map((S) => S.sk));
-    const mine = (r) => isFab(r) && [...sks].some((sk) => r.id.startsWith("fab-" + sk + "-"));
-    const steel = allRows.filter((r) => r.item_type === "steel");
+  function simulateCuts(pieces, base) {
+    const steel = base.filter((r) => r.item_type === "steel");
     const steelIn = new Set(steel.filter((r) => !isFab(r) && !isOut(r)).map((r) => r.size));
-    const existing = new Map(allRows.filter(mine).map((r) => [r.id, r]));
-    // Stock on the racks before these trackers' pieces: everything except lines this upload rebuilds.
     const inv = new Map(), stdLens = new Map();
     const invOf = (s) => { if (!inv.has(s)) inv.set(s, new Map()); return inv.get(s); };
-    steel.filter((r) => !mine(r)).forEach((r) => { const m = invOf(r.size); m.set(r.length, (m.get(r.length) || 0) + Number(r.qty || 0)); if (!isFab(r) && !isOut(r) && r.length) { if (!stdLens.has(r.size)) stdLens.set(r.size, new Set()); stdLens.get(r.size).add(r.length); } });
-    const want = new Map(), ign = { notDone: 0, before: 0, notYard: new Map(), bad: [] }, cut = { bars: 0, drops: 0, scrapFt: 0, noLen: 0 };
+    steel.forEach((r) => { const m = invOf(r.size); m.set(r.length, (m.get(r.length) || 0) + Number(r.qty || 0)); if (!isFab(r) && !isOut(r) && r.length) { if (!stdLens.has(r.size)) stdLens.set(r.size, new Set()); stdLens.get(r.size).add(r.length); } });
+    const lines = [], ign = { notDone: 0, before: 0, notYard: new Map(), bad: [] }, cut = { bars: 0, drops: 0, scrapFt: 0, noLen: 0 };
     const ok = [];
-    for (const p of P.pieces) {
-      if (!p.done) { ign.notDone++; continue; }
+    for (const p of pieces) {
       if (!p.size) { ign.bad.push(`${p.sheet} row ${p.line} (${p.mark}): no size`); continue; }
       if (!(p.qty > 0) || Math.round(p.qty) !== p.qty) { ign.bad.push(`${p.sheet} row ${p.line} (${p.mark}): qty "${p.qty}"`); continue; }
       if (p.fabDate && p.fabDate < cutFor(p.sk)) { ign.before++; continue; }
       if (!steelIn.has(p.size) && !fabSettings.includeNotInYard) { ign.notYard.set(p.size, (ign.notYard.get(p.size) || 0) + p.qty); continue; }
-      const prevAny = [...existing.values()].find((r) => r.id.startsWith(p.id + "~"));
-      ok.push({ ...p, date: p.fabDate || (prevAny ? prevAny.rec_date : todayIso()), prevBy: prevAny ? prevAny.by_name || "" : "" });
+      ok.push({ ...p, date: p.fabDate || todayIso() });
     }
-    // Oldest first, so earlier pieces get first pick of bars and drops.
-    ok.sort((a, b) => a.date.localeCompare(b.date) || a.sheet.localeCompare(b.sheet) || a.line - b.line);
+    ok.sort((a, b) => a.date.localeCompare(b.date) || a.sheet.localeCompare(b.sheet) || a.line - b.line); // oldest first get first pick
     for (const p of ok) {
       const m = invOf(p.size), need = feetOf(p.len), net = new Map(), add = (l, d) => net.set(l, (net.get(l) || 0) + d);
       const given = p.raw && feetOf(normLen(p.raw)) != null ? normLen(p.raw) : "";
@@ -982,16 +979,55 @@ details.ign summary { cursor:pointer; color:var(--muted); }
         if (!q) return;
         const each = autoEach(p.size, l), isD = q > 0;
         if (isD) cut.drops += q; else cut.bars -= q;
-        const id = p.id + (isD ? "~d-" : "~c-") + lenKey(l || "any"), prev = existing.get(id);
-        want.set(id, { id, rec_date: p.date, item_type: "steel", unit: "pcs", size: p.size, length: l, qty: q,
-          lbs_each: each == null ? "" : String(each), ref: (isD ? "Drop · " : "Fab · ") + p.sheet,
-          notes: [p.area, p.mark, p.len ? p.qty + " × " + p.len : "", isD ? "drop ≥5'" : ""].filter(Boolean).join(" · "), by_name: p.by || p.prevBy || (prev ? prev.by_name || "" : "") });
+        lines.push({ id: p.id + (isD ? "~d-" : "~c-") + lenKey(l || "any"), computed: true, rec_date: p.date, item_type: "steel", unit: "pcs", size: p.size, length: l, qty: q,
+          lbs_each: each == null ? null : each, ref: (isD ? "Drop · " : "Fab · ") + p.sheet,
+          notes: [p.area, p.mark, p.len ? p.qty + " × " + p.len : "", isD ? "drop ≥5'" : ""].filter(Boolean).join(" · "), by_name: p.by || "" });
       });
     }
+    return { lines, ign, cut, pieces: ok.reduce((s, p) => s + p.qty, 0) };
+  }
+
+  // ---- uploading a tracker file: preview, then save it as the sheet's feed ----
+  async function onFabFile(file) {
+    if (!file) return;
+    if (!window.XLSX) { toast("Excel reader didn't load. Check your connection."); return; }
+    let wb; try { wb = XLSX.read(await file.arrayBuffer(), { cellDates: true }); } catch (e) { toast("Couldn't read that file. Save it as .xlsx and try again."); return; }
+    const sheets = readFabSheets(wb);
+    if (!sheets.length) { toast("Couldn't find a fab tracker in that file. A sheet needs Piece Mark and Size (or Main Material) columns.", 5500); return; }
+    const newFeeds = new Map(feeds), sheetInfo = [];
+    for (const S of sheets) {
+      const { col } = S, get = (r, i) => (i >= 0 ? r[i] : ""), pieces = [];
+      for (const { r, line } of S.rows) {
+        const mark = String(get(r, col.mark) || "").trim(); if (!mark || /\(example\)/i.test(mark)) continue;
+        const fabDate = cellDate(get(r, col.fabDate));
+        const statuses = col.status.map((i) => String(r[i] || "").trim()).filter(Boolean);
+        const stageDone = col.stagesDone.some((i) => /^done|complete/i.test(String(r[i] || "").trim()));
+        const stageTxt = String(get(r, col.stage) || "");
+        const done = !!fabDate || stageDone || /galv|ship|complete|install/i.test(stageTxt) || statuses.some((s) => DONE_RE.test(s) && !NOT_DONE_RE.test(s));
+        const qtyRaw = String(get(r, col.qty) ?? "").replace(/,/g, "").trim();
+        pieces.push({ line, mark, area: String(get(r, col.area) || "").trim(), done, fabDate, size: String(get(r, col.size) || "").trim(), len: String(get(r, col.len) || "").trim(),
+          qty: qtyRaw === "" ? 1 : qtyRaw, by: String(get(r, col.by) || "").trim(), raw: String(get(r, col.raw) || "").trim() });
+      }
+      newFeeds.set(slug(S.sheet), feedFromPieces(S.sheet, pieces, file.name));
+      sheetInfo.push({ name: S.sheet, sk: slug(S.sheet), hasDates: S.col.fabDate >= 0 });
+    }
+    fabSettingsBefore = JSON.parse(JSON.stringify(fabSettings));
+    sheetInfo.forEach((S) => { fabSettings.cutoff[S.sk] = cutFor(S.sk); });
+    fabParsed = { file: file.name, sheets: sheetInfo, newFeeds };
+    buildFabPlan(); openImportPreview();
+  }
+  // Compares the yard now with the yard after these feeds, for the preview.
+  function buildFabPlan() {
+    const F = fabParsed, after = derive(F.newFeeds);
+    const before = new Map(allRows.filter(isFab).map((r) => [r.id, r]));
+    const afterAll = new Map(after.base.filter(isFab).concat(after.lines).map((r) => [r.id, r]));
     const add = [], upd = []; let same = 0;
-    want.forEach((w, id) => { const p = existing.get(id); if (!p) add.push(w); else if (p.size !== w.size || p.length !== w.length || Number(p.qty) !== w.qty || p.rec_date !== w.rec_date || (p.notes || "") !== w.notes || (p.by_name || "") !== w.by_name || (p.ref || "") !== w.ref || String(p.lbs_each ?? "") !== w.lbs_each) upd.push(w); else same++; });
-    const del = [...existing.values()].filter((r) => !want.has(r.id));
-    pendingImport = { add, upd, del, same, ign, cut, want: [...want.values()], pieces: ok.reduce((s, p) => s + p.qty, 0), done: P.pieces.filter((p) => p.done).length, total: P.pieces.length };
+    afterAll.forEach((w, id) => { const p = before.get(id); if (!p) add.push(w); else if (p.size !== w.size || p.length !== w.length || Number(p.qty) !== Number(w.qty) || p.rec_date !== w.rec_date || (p.notes || "") !== (w.notes || "") || (p.by_name || "") !== (w.by_name || "")) upd.push(w); else same++; });
+    const del = [...before.values()].filter((r) => !afterAll.has(r.id));
+    const sent = F.sheets.map((S) => F.newFeeds.get(S.sk));
+    const ign = after.ign; ign.notDone = sent.reduce((s, f) => s + (f.total - f.done), 0); ign.before += sent.reduce((s, f) => s + f.before, 0);
+    pendingImport = { add, upd, del, same, ign, cut: after.cut, pieces: after.pieces, done: sent.reduce((s, f) => s + f.done, 0), total: sent.reduce((s, f) => s + f.total, 0),
+      legacy: storedRows.filter((r) => fedSheet(r, new Map(F.sheets.map((S) => [S.sk, 1])))) };
   }
   function openImportPreview() {
     const P = pendingImport, F = fabParsed;
@@ -1036,31 +1072,23 @@ details.ign summary { cursor:pointer; color:var(--muted); }
     $("sheet").classList.add("open"); $("sheet").setAttribute("aria-hidden", "false"); $("scrim").classList.add("open");
   }
   async function applyImport() {
-    const P = pendingImport; if (!P) return;
-    if (!P.add.length && !P.upd.length && !P.del.length) { closeForm(); return; }
-    if (hasByCol === false) { toast("One more setup step: run add-received-by.sql in Supabase, then try again.", 5000); return; }
-    const saves = [...P.add, ...P.upd], dels = P.del.map((r) => r.id), N = saves.length + dels.length;
+    const P = pendingImport, F = fabParsed; if (!P) return;
     $("saveBtn").disabled = true;
     try {
       await withCode(async (code) => {
-        await rest("/rest/v1/rpc/save_setting", { method: "POST", body: JSON.stringify({ p_code: code, p_id: "fab-import", p_data: fabSettings }) }).catch(() => {});
-        let doneN = 0; const tick = (k) => { doneN += k; $("saveBtn").textContent = `Saving ${fmt(doneN)}/${fmt(N)}…`; };
-        let batch = true;
-        try {
-          for (let i = 0; i < saves.length; i += 250) { const part = saves.slice(i, i + 250); await rest("/rest/v1/rpc/save_yard_items", { method: "POST", body: JSON.stringify({ p_code: code, p_rows: part }) }); tick(part.length); }
-          for (let i = 0; i < dels.length; i += 250) { const part = dels.slice(i, i + 250); await rest("/rest/v1/rpc/delete_yard_items", { method: "POST", body: JSON.stringify({ p_code: code, p_ids: part }) }); tick(part.length); }
-        } catch (e) { if (e.code === "bad_passcode" || doneN) throw e; batch = false; }
-        if (!batch) { // fast batch functions not installed yet: send one at a time
-          const jobs = saves.map((w) => ["save", w]).concat(dels.map((id) => ["del", id]));
-          for (let i = 0; i < jobs.length; i += 6) {
-            await Promise.all(jobs.slice(i, i + 6).map(([k, v]) => (k === "save"
-              ? rest("/rest/v1/rpc/save_yard_item", { method: "POST", body: JSON.stringify({ p_code: code, p_row: v }) })
-              : rest("/rest/v1/rpc/delete_raw_steel", { method: "POST", body: JSON.stringify({ p_code: code, p_id: v }) })).then(() => tick(1))));
-          }
+        $("saveBtn").textContent = "Saving…";
+        for (const S of F.sheets) await rest("/rest/v1/rpc/save_setting", { method: "POST", body: JSON.stringify({ p_code: code, p_id: FEED_PREFIX + S.sk, p_data: F.newFeeds.get(S.sk) }) });
+        await rest("/rest/v1/rpc/save_setting", { method: "POST", body: JSON.stringify({ p_code: code, p_id: "fab-import", p_data: fabSettings }) });
+        // Old-style saved FAB lines for these sheets are no longer needed: the feed replaces them.
+        const ids = P.legacy.map((r) => r.id);
+        if (ids.length) {
+          try { for (let i = 0; i < ids.length; i += 250) await rest("/rest/v1/rpc/delete_yard_items", { method: "POST", body: JSON.stringify({ p_code: code, p_ids: ids.slice(i, i + 250) }) }); }
+          catch (e) { if (e.code === "bad_passcode") throw e; for (const id of ids) await rest("/rest/v1/rpc/delete_raw_steel", { method: "POST", body: JSON.stringify({ p_code: code, p_id: id }) }); }
         }
       });
-      const used = P.add.reduce((s, w) => s + (w.qty < 0 ? -w.qty : 0), 0), back = P.add.reduce((s, w) => s + (w.qty > 0 ? w.qty : 0), 0);
-      closeForm(); toast(`Yard updated from fab tracker: ${fmt(used)} bars used, ${fmt(back)} drops back on the rack${P.upd.length || P.del.length ? ` (${fmt(P.upd.length + P.del.length)} lines adjusted)` : ""}.`, 5000);
+      fabSettingsBefore = null; feeds = F.newFeeds;
+      const used = P.cut.bars, back = P.cut.drops;
+      closeForm(); toast(`Yard updated from ${F.sheets.map((S) => S.name).join(", ")}: ${fmt(used)} bars used in fab, ${fmt(back)} drops on the rack.`, 5000);
       pendingImport = null; await refresh();
     } catch (e) { if (e.code !== "cancelled") toast(saveErr(e)); await refresh(); }
     finally { $("saveBtn").disabled = false; }
@@ -1123,7 +1151,14 @@ details.ign summary { cursor:pointer; color:var(--muted); }
     try {
       const r = await rest("/rest/v1/raw_steel?select=*&order=rec_date.desc&limit=10000");
       if (r && r.length) hasByCol = r.some((x) => "by_name" in x);
-      allRows = (r || []).map((x) => ({ ...x, item_type: x.item_type || "steel", unit: x.unit || "pcs", rec_date: String(x.rec_date).slice(0, 10), qty: Number(x.qty || 0), lbs_each: x.lbs_each == null ? null : Number(x.lbs_each), ref: x.ref || "", notes: x.notes || "", length: x.length || "" }));
+      storedRows = (r || []).map((x) => ({ ...x, item_type: x.item_type || "steel", unit: x.unit || "pcs", rec_date: String(x.rec_date).slice(0, 10), qty: Number(x.qty || 0), lbs_each: x.lbs_each == null ? null : Number(x.lbs_each), ref: x.ref || "", notes: x.notes || "", length: x.length || "" }));
+      try {
+        const fs = await rest("/rest/v1/app_settings?select=id,data&or=(id.like.fab-feed-*,id.eq.fab-import)");
+        const m = new Map();
+        (fs || []).forEach((x) => { if (x.id === "fab-import") { if (!fabSettingsBefore) fabSettings = { ...fabSettings, ...x.data, cutoff: { ...(x.data.cutoff || {}) } }; } else if (x.data && x.data.sheet) m.set(x.id.slice(FEED_PREFIX.length), x.data); });
+        feeds = m;
+      } catch (e) { /* keep the feeds we had */ }
+      recompute();
       loaded = true; setSync(true, "Live · refreshes every 30 seconds");
     } catch (e) {
       loaded = true;
@@ -1156,13 +1191,13 @@ details.ign summary { cursor:pointer; color:var(--muted); }
   $("fabTpl").onclick = async (e) => {
     e.preventDefault(); $("dataMenu").open = false;
     try {
-      const res = await fetch("fab-tracker-template.xlsx", { cache: "no-store" }); if (!res.ok) throw new Error(res.status);
+      const res = await fetch("fab-tracker.xlsm", { cache: "no-store" }); if (!res.ok) throw new Error(res.status);
       const blob = new Blob([await res.arrayBuffer()], { type: "application/octet-stream" });
       const url = URL.createObjectURL(blob), a = document.createElement("a");
-      a.href = url; a.download = "JP Fab Tracker.xlsx"; document.body.appendChild(a); a.click(); a.remove();
+      a.href = url; a.download = "JP Fab Tracker.xlsm"; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
-      toast("JP Fab Tracker saved to your Downloads folder.");
-    } catch (er) { location.href = "fab-tracker-template.xlsx"; }
+      toast("JP Fab Tracker saved to your Downloads folder. Before opening it: right-click it → Properties → tick Unblock → OK, so its Update app button works.", 9000);
+    } catch (er) { location.href = "fab-tracker.xlsm"; }
   };
   $("fabBtn").onclick = () => { $("dataMenu").open = false; $("fabFile").value = ""; $("fabFile").click(); };
   document.addEventListener("click", (e) => { if ($("dataMenu").open && !e.target.closest("#dataMenu")) $("dataMenu").open = false; });

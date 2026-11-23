@@ -44,3 +44,11 @@ stocks, fab complete on/after the start date (saved in app_settings `fab-import`
 Run `add-fab-batch.sql` once so big uploads save in batches.
 Drops: each fab piece is cut from the shortest bar or drop of that size that fits (or the tracker's Raw Stock Length);
 what's left (minus a 1/8" kerf) goes back to the yard as a drop if it's 5 ft or longer, otherwise it's scrap.
+
+## Excel "Update app" button
+
+`fab-tracker.xlsm` (JP Fab Tracker) has an **Update app** macro button. It sends every fab-complete row
+(Fab complete on/after 11/22/26) as one JSON "feed" to `app_settings` id `fab-feed-<sheet>` via the
+`save_setting` RPC (team passcode, saved in a very-hidden AppSettings sheet). The Yard Inventory page works out
+FAB / DROP lines from all feeds on every load, so sending again simply replaces the previous send.
+Uploading a tracker file in the app saves the same kind of feed.
