@@ -339,6 +339,13 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
 .in { color: var(--good); } .out { color: var(--warn); }
 .ystats .v.in { color: var(--good); } .ystats .v.out { color: var(--warn); }
 .kind { display:inline-block; font-size:10px; font-weight:700; letter-spacing:.05em; border-radius:4px; padding:1px 5px; }
+.datamenu { position:relative; }
+.datamenu > summary { list-style:none; cursor:pointer; font-weight:600; }
+.datamenu > summary::-webkit-details-marker { display:none; }
+.datamenu[open] > summary { border-color:var(--ink); }
+.dmpanel { position:absolute; right:0; top:calc(100% + 6px); z-index:20; display:grid; gap:6px; padding:8px; min-width:210px; background:var(--panel); border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); }
+.dmpanel .btn { justify-content:flex-start; width:100%; }
+@media (max-width: 860px) { .dmpanel { right:auto; left:0; } }
 .fabbtn { background:#e3f5e6; border-color:#9fd3a8; color:#1f4d2b; font-weight:600; }
 @media (prefers-color-scheme: dark) { .fabbtn { background:#1f3a26; border-color:#3f7a4c; color:#cdeed3; } }
 #fabTpl { background:#fff3b0; border-color:#e6cf5c; color:#5c4a00; font-weight:600; }
@@ -375,6 +382,11 @@ details.ign summary { cursor:pointer; color:var(--muted); }
       </div>
     </div>
     <div class="actions">
+      <details class="datamenu" id="dataMenu"><summary class="btn">Data <span aria-hidden="true">▾</span></summary>
+        <div class="dmpanel" role="menu">
+          <button class="btn fabbtn" id="fabBtn" type="button" role="menuitem" title="Upload the fab tracker (.xlsx). Pieces marked Fab complete subtract from the yard.">⇪ Upload fab tracker</button>
+          <a class="btn" id="fabTpl" role="menuitem" href="fab-tracker-template.xlsx" download="JP Fab Tracker.xlsx">JP Fab Tracker</a>
+        </div></details><input type="file" id="fabFile" accept=".xlsx,.xlsm,.xls,.ods,.csv" hidden>
       <nav class="pagenav" aria-label="Pages"><a href="./">Shipments</a><a href="yard.html" aria-current="page">Yard Inventory</a></nav>
     </div>
   </header>
@@ -389,7 +401,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
   </div>
   <section class="card">
     <div class="yhead"><div><div class="tabs" role="tablist" aria-label="What to show" style="margin-bottom:8px"><button role="tab" data-type="steel" aria-selected="true">Raw steel</button><button role="tab" data-type="bolts" aria-selected="false">Bolts</button></div><h2 id="yTitle">Raw steel</h2><div class="hint">Received in, shipped out and on hand, by day and size. Separate from the shipment manifests.</div></div>
-      <div class="actions"><button class="btn fabbtn" id="fabBtn" type="button" title="Upload the fab tracker (.xlsx). Pieces marked Fab complete subtract from the yard.">⇪ Upload fab tracker</button><input type="file" id="fabFile" accept=".xlsx,.xlsm,.xls,.ods,.csv" hidden><a class="btn" id="fabTpl" href="fab-tracker-template.xlsx" download="JP Fab Tracker.xlsx">JP Fab Tracker</a><button class="btn" id="exportBtn" type="button">Export to Excel</button><button class="btn" id="shipBtn" type="button">− Log shipped out</button><button class="btn primary" id="logBtn" type="button">+ Log received</button></div></div>
+      <div class="actions"><button class="btn" id="exportBtn" type="button">Export to Excel</button><button class="btn" id="shipBtn" type="button">− Log shipped out</button><button class="btn primary" id="logBtn" type="button">+ Log received</button></div></div>
     <div class="banner show warnb" id="negWarn" role="status" hidden></div>
     <div class="ystats" id="stats"></div>
     <div class="ygrid"><div>
@@ -560,7 +572,6 @@ details.ign summary { cursor:pointer; color:var(--muted); }
     const uw = T().unitWord;
     document.querySelectorAll("[data-type]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.type === stType)));
     $("yTitle").textContent = stType === "bolts" ? "Bolts" : "Raw steel";
-    $("fabBtn").hidden = isBolt(stType); $("fabTpl").hidden = isBolt(stType);
     $("thBy").textContent = st.kind === "fab" ? "Completed by" : st.kind === "out" ? "Shipped by" : st.kind === "in" ? "Received by" : "Received / shipped by";
     $("thSize").textContent = T().sizeH; $("thLen").textContent = T().lenH;
     document.querySelectorAll("[data-range]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.range === st.range)));
@@ -1133,7 +1144,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
   $("saveBtn").onclick = () => (sheetMode === "import" ? applyImport() : saveForm());
   // Download the tracker as a plain file so Edge/Chrome save it instead of opening Excel in the browser.
   $("fabTpl").onclick = async (e) => {
-    e.preventDefault();
+    e.preventDefault(); $("dataMenu").open = false;
     try {
       const res = await fetch("fab-tracker-template.xlsx", { cache: "no-store" }); if (!res.ok) throw new Error(res.status);
       const blob = new Blob([await res.arrayBuffer()], { type: "application/octet-stream" });
@@ -1143,7 +1154,8 @@ details.ign summary { cursor:pointer; color:var(--muted); }
       toast("JP Fab Tracker saved to your Downloads folder.");
     } catch (er) { location.href = "fab-tracker-template.xlsx"; }
   };
-  $("fabBtn").onclick = () => { $("fabFile").value = ""; $("fabFile").click(); };
+  $("fabBtn").onclick = () => { $("dataMenu").open = false; $("fabFile").value = ""; $("fabFile").click(); };
+  document.addEventListener("click", (e) => { if ($("dataMenu").open && !e.target.closest("#dataMenu")) $("dataMenu").open = false; });
   $("fabFile").onchange = (e) => { const f = e.target.files[0]; e.target.value = ""; onFabFile(f); };
   $("delBtn").onclick = deleteLine;
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("sheet").classList.contains("open") && $("pcDlg").hidden) closeForm(); });
