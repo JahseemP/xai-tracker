@@ -820,7 +820,8 @@ details.ign summary { cursor:pointer; color:var(--muted); }
   // Every piece that is fab complete becomes one "used in fab" line that subtracts its qty from that steel size.
   // Each piece has a fixed id (fab-<sheet>-<area>-<mark>), so uploading the same tracker again never subtracts twice.
   let sheetMode = "form", pendingImport = null, fabParsed = null;
-  let fabSettings = { cutoff: {}, includeOther: false, includeNotInYard: false };
+  // The yard inventory in this app is the only raw steel source: the tracker's own "Raw source" column is ignored.
+  let fabSettings = { cutoff: {}, includeNotInYard: false };
   const FAB_START = "2026-11-22"; // nothing fab-completed before this date is ever counted
   const cutFor = (sk) => { const c = fabSettings.cutoff[sk]; return c && c > FAB_START ? c : FAB_START; };
   const slug = (s) => String(s).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "x";
@@ -850,7 +851,6 @@ details.ign summary { cursor:pointer; color:var(--muted); }
           fabDate: first(/^fab complete$/, /fab(rication)? complete.*date|date.*fab(rication)? complete|^date complete$/),
           by: first(/completed by|fab(ricated)? by|^fitter$|^welder$/),
           area: first(/^dh$|^job ?#?$|^area$|^sequence$|^seq$/),
-          src: first(/raw source/),
           status: all(/status/),
           stagesDone: all(/^qc$|^galv|^ship$|^paint/),
           stage: first(/current stage/),
@@ -883,10 +883,10 @@ details.ign summary { cursor:pointer; color:var(--muted); }
         const qtyRaw = String(get(r, col.qty) ?? "").replace(/,/g, "").trim();
         pieces.push({ id: base + (n > 1 ? "-" + n : ""), sheet: S.sheet, sk, line, mark, area, done, fabDate,
           size: normSize(get(r, col.size)), len: normLen(String(get(r, col.len) || "").trim()), qty: qtyRaw === "" ? 1 : Number(qtyRaw),
-          by: String(get(r, col.by) || "").trim(), src: col.src >= 0 ? String(get(r, col.src) || "").trim() : null });
+          by: String(get(r, col.by) || "").trim() });
       }
     }
-    fabParsed = { file: file.name, sheets: sheets.map((S) => ({ name: S.sheet, sk: slug(S.sheet), hasDates: S.col.fabDate >= 0, hasSrc: S.col.src >= 0 })), pieces };
+    fabParsed = { file: file.name, sheets: sheets.map((S) => ({ name: S.sheet, sk: slug(S.sheet), hasDates: S.col.fabDate >= 0 })), pieces };
     try { const r = await rest("/rest/v1/app_settings?select=data&id=eq.fab-import"); if (r && r.length) fabSettings = { ...fabSettings, ...r[0].data, cutoff: { ...(r[0].data.cutoff || {}) } }; } catch (e) { /* use defaults */ }
     fabParsed.sheets.forEach((S) => { fabSettings.cutoff[S.sk] = cutFor(S.sk); });
     buildFabPlan(); openImportPreview();
@@ -895,13 +895,12 @@ details.ign summary { cursor:pointer; color:var(--muted); }
   function buildFabPlan() {
     const P = fabParsed, steelIn = new Set(allRows.filter((r) => r.item_type === "steel" && !isFab(r) && !isOut(r)).map((r) => r.size));
     const existing = new Map(allRows.filter(isFab).map((r) => [r.id, r]));
-    const want = new Map(), ign = { notDone: 0, before: 0, other: 0, notYard: new Map(), bad: [] };
+    const want = new Map(), ign = { notDone: 0, before: 0, notYard: new Map(), bad: [] };
     for (const p of P.pieces) {
       if (!p.done) { ign.notDone++; continue; }
       if (!p.size) { ign.bad.push(`${p.sheet} row ${p.line} (${p.mark}): no size`); continue; }
       if (!(p.qty > 0) || Math.round(p.qty) !== p.qty) { ign.bad.push(`${p.sheet} row ${p.line} (${p.mark}): qty "${p.qty}"`); continue; }
       if (p.fabDate && p.fabDate < cutFor(p.sk)) { ign.before++; continue; }
-      if (p.src != null && !/solc/i.test(p.src) && !fabSettings.includeOther) { ign.other++; continue; }
       if (!steelIn.has(p.size) && !fabSettings.includeNotInYard) { ign.notYard.set(p.size, (ign.notYard.get(p.size) || 0) + p.qty); continue; }
       const prev = existing.get(p.id), each = autoEach(p.size, p.len);
       want.set(p.id, { id: p.id, rec_date: p.fabDate || (prev ? prev.rec_date : todayIso()), item_type: "steel", unit: "pcs", size: p.size, length: "", qty: -p.qty,
@@ -930,7 +929,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
     $("sheetTitle").textContent = nothing ? "Yard is already up to date" : "Update yard from fab tracker";
     $("delBtn").hidden = true;
     $("saveBtn").textContent = nothing ? "Close" : "Apply to yard";
-    const dated = F.sheets.filter((S) => S.hasDates), hasSrc = F.sheets.some((S) => S.hasSrc);
+    const dated = F.sheets.filter((S) => S.hasDates);
     const nY = [...P.ign.notYard.entries()].sort((a, b) => b[1] - a[1]);
     $("sheetBody").innerHTML = `
       <p>${fmt(P.total)} pieces in the tracker · <strong>${fmt(P.done)} fab complete</strong>${P.same ? ` · ${fmt(P.same)} already counted` : ""}</p>
@@ -940,15 +939,13 @@ details.ign summary { cursor:pointer; color:var(--muted); }
       ${P.upd.length ? `<div><div class="clab">Changed in the tracker — will be updated (${fmt(P.upd.length)} piece${P.upd.length === 1 ? "" : "s"})</div></div>` : ""}
       ${P.del.length ? `<div><div class="clab">No longer counted — will be added back to the yard</div><table class="lgrid"><tbody>${bySize(P.del.map((r) => ({ size: r.size, qty: r.qty })), "+")}</tbody></table></div>` : ""}
       ${short.length ? `<div class="pcerr">After this, more will be used than the yard has for: ${short.map(([s, q]) => esc(s) + " (" + fmt(q) + ")").join(", ")}. A delivery may not be logged yet.</div>` : ""}
-      <details class="ign"><summary>Not counted: ${fmt(P.ign.notDone)} not fab complete${P.ign.before ? ` · ${fmt(P.ign.before)} before the start date` : ""}${P.ign.other ? ` · ${fmt(P.ign.other)} raw steel not from SOLC` : ""}${nY.length ? ` · ${fmt(nY.reduce((s, x) => s + x[1], 0))} in sizes the yard doesn't stock` : ""}${P.ign.bad.length ? ` · ${P.ign.bad.length} rows with problems` : ""}</summary>
-        ${hasSrc ? `<label class="chk"><input type="checkbox" id="incOther"${fabSettings.includeOther ? " checked" : ""}> Also count pieces whose Raw source isn't SOLC (Panel Built, SpacexAi…)</label>` : ""}
+      <details class="ign"><summary>Not counted: ${fmt(P.ign.notDone)} not fab complete${P.ign.before ? ` · ${fmt(P.ign.before)} before the start date` : ""}${nY.length ? ` · ${fmt(nY.reduce((s, x) => s + x[1], 0))} in sizes the yard doesn't stock` : ""}${P.ign.bad.length ? ` · ${P.ign.bad.length} rows with problems` : ""}</summary>
         ${nY.length || fabSettings.includeNotInYard ? `<label class="chk"><input type="checkbox" id="incNY"${fabSettings.includeNotInYard ? " checked" : ""}> Also count sizes never received into the yard</label>${nY.length ? `<p class="hint" style="margin:2px 0 0">${nY.slice(0, 20).map(([s, q]) => `${esc(s)} (${fmt(q)})`).join(", ")}${nY.length > 20 ? "…" : ""}</p>` : ""}` : ""}
         ${P.ign.bad.length ? `<p class="hint">${P.ign.bad.slice(0, 10).map(esc).join("<br>")}${P.ign.bad.length > 10 ? "<br>…" : ""}</p>` : ""}
       </details>
       <p class="hint">${nothing ? "Nothing new to change. " : ""}Uploading the same tracker again is safe: each piece is only ever subtracted once.</p>`;
     const reopen = () => { buildFabPlan(); const open = $("sheetBody").querySelector("details.ign")?.open; openImportPreview(); if (open) $("sheetBody").querySelector("details.ign").open = true; };
     $("sheetBody").querySelectorAll("[data-cut]").forEach((inp) => (inp.onchange = () => { if (/^\d{4}-\d{2}-\d{2}$/.test(inp.value)) { fabSettings.cutoff[inp.dataset.cut] = inp.value < FAB_START ? FAB_START : inp.value; reopen(); } }));
-    if ($("incOther")) $("incOther").onchange = (e) => { fabSettings.includeOther = e.target.checked; reopen(); };
     if ($("incNY")) $("incNY").onchange = (e) => { fabSettings.includeNotInYard = e.target.checked; reopen(); };
     $("sheet").classList.add("open"); $("sheet").setAttribute("aria-hidden", "false"); $("scrim").classList.add("open");
   }
