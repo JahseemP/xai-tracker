@@ -52,3 +52,6 @@ what's left (minus a 1/8" kerf) goes back to the yard as a drop if it's 5 ft or 
 `save_setting` RPC (team passcode, saved in a very-hidden AppSettings sheet). The Yard Inventory page works out
 FAB / DROP lines from all feeds on every load, so sending again simply replaces the previous send.
 Uploading a tracker file in the app saves the same kind of feed.
+**Refresh material** (same workbook) reads `raw_steel` and the `yard_feed_rows` view (run `add-material-view.sql` once)
+as CSV, replays every fab-complete piece with the app's cutting rules, then fills the tracker's Material column for
+unfinished pieces top to bottom (✔ bar/drop it would use, ✖ short). Runs on open, every 5 minutes, and after edits.
