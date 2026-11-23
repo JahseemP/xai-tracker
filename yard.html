@@ -326,6 +326,8 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
 .ystats .l { width:100%; font-size:9.5px; line-height:1.3; }
 .ystats .v { font-size:15px; line-height:1.2; }
 .ystats .s { font-size:10px; }
+#sizeSel { border:1px solid var(--line); background:var(--panel); border-radius:7px; padding:5px 8px; min-width:150px; font-family:var(--font-mono); font-size:13px; color:var(--ink); }
+#sizeSel:focus { outline:2px solid var(--accent); outline-offset:1px; }
 .chead { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:2px; }
 .seg { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
 .seg button { border:0; background:transparent; padding:3px 10px; font-size:12px; cursor:pointer; color:var(--muted); }
@@ -377,7 +379,7 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
     <div class="banner show warnb" id="negWarn" role="status" hidden></div>
     <div class="ystats" id="stats"></div>
     <div class="ygrid"><div>
-      <div class="ybar"><button class="chip" data-kind="all" aria-pressed="true">In &amp; out</button><button class="chip" data-kind="in" aria-pressed="false">Received only</button><button class="chip" data-kind="out" aria-pressed="false">Shipped out only</button><span class="sizes" id="sizeChips"></span></div>
+      <div class="ybar"><button class="chip" data-kind="all" aria-pressed="true">In &amp; out</button><button class="chip" data-kind="in" aria-pressed="false">Received only</button><button class="chip" data-kind="out" aria-pressed="false">Shipped out only</button><label class="sizes" id="sizeWrap" hidden>Size: <select id="sizeSel" aria-label="Filter by size"></select></label></div>
       <div class="cbox"><div class="chead"><div class="clab" id="chartLab"></div><div class="seg" role="group" aria-label="Chart"><button type="button" data-chart="summary" aria-pressed="true">Summary</button><button type="button" data-chart="daily" aria-pressed="false">Per day</button></div></div><div id="chart"></div></div>
       <div class="tablewrap"><table class="ytable"><thead><tr><th style="width:40px"></th><th id="thSize">Size</th><th id="thLen">Length</th><th class="num">Qty</th><th class="num hm">Lbs each</th><th class="num">Total lbs</th><th id="thBy">Received by</th><th class="hm">Manifest / BOL</th></tr></thead><tbody id="rows"></tbody></table></div>
       <div class="foot" style="padding:8px 0"><span id="showing"></span><span>Click a line to edit or delete it.</span></div>
@@ -535,7 +537,9 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
     $("negWarn").hidden = !neg.length;
     if (neg.length) $("negWarn").innerHTML = `<strong>Check these counts:</strong> more shipped out than received for ${neg.map(([k, v]) => esc(labOf(k)) + " (" + fmt(v.q) + ")").join(", ")}. A delivery may not have been logged, or a size or length was typed differently.`;
     const sizes = [...new Set(rows.map((r) => r.size))].sort(sizeSort);
-    $("sizeChips").innerHTML = sizes.length ? "Size: " + [["", "All"]].concat(sizes.map((s) => [s, s])).map(([v, l]) => `<button class="chip" data-size="${esc(v)}" aria-pressed="${st.size === v}">${esc(l)}</button>`).join("") : "";
+    if (st.size && !sizes.includes(st.size)) st.size = "";
+    $("sizeWrap").hidden = !sizes.length;
+    $("sizeSel").innerHTML = [["", `All sizes (${sizes.length})`]].concat(sizes.map((x) => [x, x])).map(([v, l]) => `<option value="${esc(v)}"${st.size === v ? " selected" : ""}>${esc(l)}</option>`).join("");
     renderChart();
     // table grouped by day
     const byDay = new Map();
@@ -841,7 +845,6 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
     const tb = e.target.closest("[data-type]"); if (tb) { stType = tb.dataset.type; try { localStorage.setItem("xai-yard-type", stType); } catch (er) { /* storage blocked */ } st.size = ""; st.combo = ""; render(); return; }
     const rb = e.target.closest("[data-range]"); if (rb) { st.range = rb.dataset.range; render(); return; }
     const kb = e.target.closest("[data-kind]"); if (kb) { st.kind = kb.dataset.kind; render(); return; }
-    const sb = e.target.closest("[data-size]"); if (sb) { st.size = sb.dataset.size; st.combo = ""; render(); return; }
     const cb = e.target.closest("[data-combo]"); if (cb) { st.combo = st.combo === cb.dataset.combo ? "" : cb.dataset.combo; st.size = ""; render(); return; }
     if (e.target.id === "clearCombo") { e.preventDefault(); st.combo = ""; render(); return; }
     const ln = e.target.closest("tr.line"); if (ln) { openForm(ln.dataset.id); return; }
@@ -850,6 +853,7 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
   let qT; $("q").addEventListener("input", (e) => { clearTimeout(qT); qT = setTimeout(() => { st.q = e.target.value; render(); }, 180); });
   const clearSearch = () => { $("q").value = ""; st.q = ""; };
   window.addEventListener("pageshow", () => { clearSearch(); render(); });
+  $("sizeSel").onchange = (e) => { st.size = e.target.value; st.combo = ""; render(); };
   $("logBtn").onclick = () => openForm(null, "in");
   $("shipBtn").onclick = () => openForm(null, "out");
   $("exportBtn").onclick = exportXlsx;
