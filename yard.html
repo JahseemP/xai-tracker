@@ -994,6 +994,18 @@ a.btn { text-decoration:none; display:inline-flex; align-items:center; color:var
   $("exportBtn").onclick = exportXlsx;
   $("closeSheet").onclick = $("cancelBtn").onclick = $("scrim").onclick = closeForm;
   $("saveBtn").onclick = () => (sheetMode === "import" ? applyImport() : saveForm());
+  // Download the tracker as a plain file so Edge/Chrome save it instead of opening Excel in the browser.
+  $("fabTpl").onclick = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch("fab-tracker-template.xlsx", { cache: "no-store" }); if (!res.ok) throw new Error(res.status);
+      const blob = new Blob([await res.arrayBuffer()], { type: "application/octet-stream" });
+      const url = URL.createObjectURL(blob), a = document.createElement("a");
+      a.href = url; a.download = "JP Fab Tracker.xlsx"; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      toast("JP Fab Tracker saved to your Downloads folder.");
+    } catch (er) { location.href = "fab-tracker-template.xlsx"; }
+  };
   $("fabBtn").onclick = () => { $("fabFile").value = ""; $("fabFile").click(); };
   $("fabFile").onchange = (e) => { const f = e.target.files[0]; e.target.value = ""; onFabFile(f); };
   $("delBtn").onclick = deleteLine;
