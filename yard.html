@@ -339,6 +339,11 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
 .in { color: var(--good); } .out { color: var(--warn); }
 .ystats .v.in { color: var(--good); } .ystats .v.out { color: var(--warn); }
 .kind { display:inline-block; font-size:10px; font-weight:700; letter-spacing:.05em; border-radius:4px; padding:1px 5px; }
+.fabbtn { background:#e3f5e6; border-color:#9fd3a8; color:#1f4d2b; font-weight:600; }
+@media (prefers-color-scheme: dark) { .fabbtn { background:#1f3a26; border-color:#3f7a4c; color:#cdeed3; } }
+a.btn { text-decoration:none; display:inline-flex; align-items:center; color:var(--ink); }
+.btn[hidden] { display:none; }
+.kind.fab { background: color-mix(in srgb, var(--c3) 18%, transparent); color: var(--c3); }
 .kind.in { background: var(--good-soft); color: var(--good); } .kind.out { background: var(--warn-soft); color: var(--warn); }
 .bay .bs { grid-column:1/-1; font-size:11px; color:var(--muted); }
 .bay.negb { border-color: var(--warn); } .bay.negb .bv { color: var(--warn); }
@@ -377,11 +382,11 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
   </div>
   <section class="card">
     <div class="yhead"><div><div class="tabs" role="tablist" aria-label="What to show" style="margin-bottom:8px"><button role="tab" data-type="steel" aria-selected="true">Raw steel</button><button role="tab" data-type="bolts" aria-selected="false">Bolts</button></div><h2 id="yTitle">Raw steel</h2><div class="hint">Received in, shipped out and on hand, by day and size. Separate from the shipment manifests.</div></div>
-      <div class="actions"><button class="btn" id="exportBtn" type="button">Export to Excel</button><button class="btn" id="shipBtn" type="button">− Log shipped out</button><button class="btn primary" id="logBtn" type="button">+ Log received</button></div></div>
+      <div class="actions"><button class="btn fabbtn" id="fabBtn" type="button" title="Upload the fab tracker (.xlsx). Pieces marked Fab complete subtract from the yard.">⇪ Upload fab tracker</button><input type="file" id="fabFile" accept=".xlsx,.xlsm,.xls,.csv" hidden><a class="btn" href="fab-tracker-template.xlsx" download>Fab tracker template</a><button class="btn" id="exportBtn" type="button">Export to Excel</button><button class="btn" id="shipBtn" type="button">− Log shipped out</button><button class="btn primary" id="logBtn" type="button">+ Log received</button></div></div>
     <div class="banner show warnb" id="negWarn" role="status" hidden></div>
     <div class="ystats" id="stats"></div>
     <div class="ygrid"><div>
-      <div class="ybar"><button class="chip" data-kind="all" aria-pressed="true">In &amp; out</button><button class="chip" data-kind="in" aria-pressed="false">Received only</button><button class="chip" data-kind="out" aria-pressed="false">Shipped out only</button><label class="sizes" id="sizeWrap" hidden>Size: <select id="sizeSel" aria-label="Filter by size"></select></label></div>
+      <div class="ybar"><button class="chip" data-kind="all" aria-pressed="true">In &amp; out</button><button class="chip" data-kind="in" aria-pressed="false">Received only</button><button class="chip" data-kind="out" aria-pressed="false">Shipped out only</button><button class="chip" data-kind="fab" aria-pressed="false">Used in fab</button><label class="sizes" id="sizeWrap" hidden>Size: <select id="sizeSel" aria-label="Filter by size"></select></label></div>
       <div class="cbox"><div class="chead"><div class="clab" id="chartLab"></div><div class="seg" role="group" aria-label="Chart"><button type="button" data-chart="summary" aria-pressed="true">Summary</button><button type="button" data-chart="daily" aria-pressed="false">Per day</button></div></div><div id="chart"></div></div>
       <div class="tablewrap"><table class="ytable"><thead><tr><th style="width:40px"></th><th id="thSize">Size</th><th id="thLen">Length</th><th class="num">Qty</th><th class="num hm">Lbs each</th><th class="num">Total lbs</th><th id="thBy">Received by</th><th class="hm">Manifest / BOL</th></tr></thead><tbody id="rows"></tbody></table></div>
       <div class="foot" style="padding:8px 0"><span id="showing"></span><span>Click a line to edit or delete it.</span></div>
@@ -480,6 +485,10 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
   const pcs = (r) => Math.abs(Number(r.qty || 0));
   const unitOf = (r) => r.unit || "pcs";
   const comboOf = (r) => r.size + "|" + r.length + "|" + unitOf(r);
+  // Steel is counted by size (all lengths together); bolts by size + length + unit.
+  const grpKey = (type, size, len, unit) => (type === "bolts" ? size + "|" + len + "|" + (unit || "pcs") : size + "||pcs");
+  const grpOf = (r) => grpKey(r.item_type, r.size, r.length, unitOf(r));
+  const isFab = (r) => String(r.id || "").startsWith("fab-");
   const labOf = (k) => { const [s, l, u] = k.split("|"); return s + (l ? " × " + l : "") + (u && u !== "pcs" ? " (" + u + ")" : ""); };
   // "9 kegs · 4 boxes · 500 pcs" — bolts come in mixed units, so totals are kept per unit
   function byUnit(list, pick) {
@@ -498,9 +507,10 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
       if (st.range === "week" && r.rec_date < ws) return false;
       if (st.range === "30" && r.rec_date < d30) return false;
       if (!opts.anyKind && st.kind === "in" && isOut(r)) return false;
-      if (!opts.anyKind && st.kind === "out" && !isOut(r)) return false;
+      if (!opts.anyKind && st.kind === "out" && (!isOut(r) || isFab(r))) return false;
+      if (!opts.anyKind && st.kind === "fab" && !isFab(r)) return false;
       if (!opts.anySize && st.size && r.size !== st.size) return false;
-      if (!opts.anySize && st.combo && comboOf(r) !== st.combo) return false;
+      if (!opts.anySize && st.combo && grpOf(r) !== st.combo) return false;
       if (q && !(r.size + " " + r.length + " " + r.ref + " " + r.notes + " " + (r.by_name || "") + " " + dayLabel(r.rec_date) + " " + r.rec_date + " " + (isOut(r) ? "shipped out" : "received")).toLowerCase().includes(q)) return false;
       return true;
     });
@@ -511,17 +521,30 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
   const wOut = (a) => a.reduce((s, r) => s + (isOut(r) ? lineLbs(r) || 0 : 0), 0);
   function onHandMap(src = rows) {
     const m = new Map();
-    src.forEach((r) => { const k = comboOf(r); const v = m.get(k) || { q: 0, w: 0, inn: 0, out: 0 }; v.q += Number(r.qty || 0); v.w += (isOut(r) ? -1 : 1) * (lineLbs(r) || 0); if (isOut(r)) v.out += pcs(r); else v.inn += pcs(r); m.set(k, v); });
+    src.forEach((r) => {
+      const k = grpOf(r); const v = m.get(k) || { q: 0, w: 0, inn: 0, out: 0, fab: 0, lens: new Map() };
+      v.q += Number(r.qty || 0); v.w += (isOut(r) ? -1 : 1) * (lineLbs(r) || 0);
+      if (isFab(r)) v.fab += pcs(r); else if (isOut(r)) v.out += pcs(r); else v.inn += pcs(r);
+      if (!isFab(r) && r.length) v.lens.set(r.length, (v.lens.get(r.length) || 0) + Number(r.qty || 0));
+      m.set(k, v);
+    });
     return m;
   }
 
+  function bayDetail(v) {
+    const parts = [];
+    if (!isBolt(stType)) { const ls = [...v.lens.entries()].filter(([, q]) => q).sort((a, b) => lenSort(a[0], b[0])); if (ls.length) parts.push(ls.map(([l, q]) => `${esc(l)} ×${fmt(q)}`).join(" · ")); }
+    parts.push(`${fmt(v.inn)} in${v.out ? " · " + fmt(v.out) + " shipped" : ""}${v.fab ? " · " + fmt(v.fab) + " to fab" : ""}`);
+    return parts.join("<br>");
+  }
   function render() {
     applyType();
     const list = filtered();
     const uw = T().unitWord;
     document.querySelectorAll("[data-type]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.type === stType)));
     $("yTitle").textContent = stType === "bolts" ? "Bolts" : "Raw steel";
-    $("thBy").textContent = st.kind === "out" ? "Shipped by" : st.kind === "in" ? "Received by" : "Received / shipped by";
+    $("fabBtn").hidden = isBolt(stType); document.querySelector('a[href="fab-tracker-template.xlsx"]').hidden = isBolt(stType);
+    $("thBy").textContent = st.kind === "fab" ? "Completed by" : st.kind === "out" ? "Shipped by" : st.kind === "in" ? "Received by" : "Received / shipped by";
     $("thSize").textContent = T().sizeH; $("thLen").textContent = T().lenH;
     document.querySelectorAll("[data-range]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.range === st.range)));
     document.querySelectorAll("[data-kind]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === st.kind)));
@@ -532,10 +555,10 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
     const neg = [...oh.entries()].filter(([, v]) => v.q < 0);
     const rangeName = { today: "today", week: "this week", "30": "last 30 days", all: "all dates" }[st.range];
     $("stats").innerHTML = `
-      <div><div class="l">On hand now</div><div class="v">${isBolt(stType) ? unitTxt(rows, (r) => Number(r.qty)) : fmt(onHand) + uw}</div><div class="s">${isBolt(stType) ? oh.size + " size" + (oh.size === 1 ? "" : "s") + " tracked" : fmt(sumIn(rows)) + " received − " + fmt(sumOut(rows)) + " shipped"}</div></div>
+      <div><div class="l">On hand now</div><div class="v">${isBolt(stType) ? unitTxt(rows, (r) => Number(r.qty)) : fmt(onHand) + uw}</div><div class="s">${isBolt(stType) ? oh.size + " size" + (oh.size === 1 ? "" : "s") + " tracked" : fmt(sumIn(rows)) + " in − " + fmt(sumOut(rows.filter((r) => !isFab(r)))) + " shipped − " + fmt(sumOut(rows.filter(isFab))) + " fab"}</div></div>
       <div><div class="l">Weight on hand</div><div class="v">${onW ? fmt(onW / 2000, 1) + " t" : "–"}</div><div class="s">${onW ? fmt(onW) + " lbs" : "where lbs are entered"}</div></div>
       <div><div class="l">Received this week</div><div class="v in">${isBolt(stType) ? unitTxt(wk, (r) => (isOut(r) ? 0 : pcs(r)), "+") : "+" + fmt(sumIn(wk)) + uw}</div><div class="s">${shortDay(ws)} – today</div></div>
-      <div><div class="l">Shipped out this week</div><div class="v out">${isBolt(stType) ? unitTxt(wk, (r) => (isOut(r) ? pcs(r) : 0), "−") : "−" + fmt(sumOut(wk)) + uw}</div><div class="s">${shortDay(ws)} – today</div></div>`;
+      <div><div class="l">${isBolt(stType) ? "Shipped out" : "Out (shipped + fab)"} this week</div><div class="v out">${isBolt(stType) ? unitTxt(wk, (r) => (isOut(r) ? pcs(r) : 0), "−") : "−" + fmt(sumOut(wk)) + uw}</div><div class="s">${isBolt(stType) ? shortDay(ws) + " – today" : fmt(sumOut(wk.filter((r) => !isFab(r)))) + " shipped · " + fmt(sumOut(wk.filter(isFab))) + " to fab"}</div></div>`;
     $("negWarn").hidden = !neg.length;
     if (neg.length) $("negWarn").innerHTML = `<strong>Check these counts:</strong> more shipped out than received for ${neg.map(([k, v]) => esc(labOf(k)) + " (" + fmt(v.q) + ")").join(", ")}. A delivery may not have been logged, or a size or length was typed differently.`;
     const sizes = [...new Set(rows.map((r) => r.size))].sort(sizeSort);
@@ -554,22 +577,22 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
       const qtxt = isBolt(stType)
         ? [qi ? `<span class="in">${esc(unitTxt(ls, (r) => (isOut(r) ? 0 : pcs(r)), "+"))}</span>` : "", qo ? `<span class="out">${esc(unitTxt(ls, (r) => (isOut(r) ? pcs(r) : 0), "−"))}</span>` : ""].filter(Boolean).join("<br>")
         : [qi ? `<span class="in">+${fmt(qi)}</span>` : "", qo ? `<span class="out">−${fmt(qo)}</span>` : ""].filter(Boolean).join(" ");
-      const wtxt = isBolt(stType) && !wIn(ls) && !wOut(ls) ? "" : [qi ? `<span class="in">+${fmt(wIn(ls))}</span>` : "", qo ? `<span class="out">−${fmt(wOut(ls))}</span>` : ""].filter(Boolean).join(" ");
+      const wtxt = [wIn(ls) ? `<span class="in">+${fmt(wIn(ls))}</span>` : "", wOut(ls) ? `<span class="out">−${fmt(wOut(ls))}</span>` : ""].filter(Boolean).join(" ") || '<span class="muted">–</span>';
       h += `<tr class="dayrow"><td colspan="3"><strong>${esc(dayLabel(d))}</strong></td><td class="num"><strong>${qtxt}</strong></td><td class="hm"></td><td class="num"><strong>${wtxt}</strong></td><td></td><td class="muted hm">${ls.length} line${ls.length === 1 ? "" : "s"}</td></tr>`;
       ls.forEach((r) => {
         const o = isOut(r);
-        h += `<tr class="line${o ? " shipped-out" : ""}" data-id="${esc(r.id)}" tabindex="0"><td><span class="kind ${o ? "out" : "in"}" title="${o ? "Shipped out" : "Received"}">${o ? "OUT" : "IN"}</span></td><td class="mono">${esc(r.size)}</td><td>${esc(r.length)}</td><td class="num ${o ? "out" : ""}">${o ? "−" : ""}${qtyU(pcs(r), unitOf(r))}</td><td class="num hm">${fmt(r.lbs_each)}</td><td class="num ${o ? "out" : ""}">${lineLbs(r) == null ? "–" : (o ? "−" : "") + fmt(lineLbs(r))}</td><td class="byc">${r.by_name ? esc(r.by_name) : '<span class="muted">–</span>'}</td><td class="mono muted hm" style="font-size:12px">${esc(r.ref)}${r.notes ? ` <span class="muted" style="font-family:var(--font-sans)">· ${esc(r.notes)}</span>` : ""}</td></tr>`;
+        h += `<tr class="line${o ? " shipped-out" : ""}" data-id="${esc(r.id)}" tabindex="0"><td><span class="kind ${isFab(r) ? "fab" : o ? "out" : "in"}" title="${isFab(r) ? "Fab complete (from fab tracker)" : o ? "Shipped out" : "Received"}">${isFab(r) ? "FAB" : o ? "OUT" : "IN"}</span></td><td class="mono">${esc(r.size)}</td><td>${esc(r.length)}</td><td class="num ${o ? "out" : ""}">${o ? "−" : ""}${qtyU(pcs(r), unitOf(r))}</td><td class="num hm">${fmt(r.lbs_each)}</td><td class="num ${o ? "out" : ""}">${lineLbs(r) == null ? "–" : (o ? "−" : "") + fmt(lineLbs(r))}</td><td class="byc">${r.by_name ? esc(r.by_name) : '<span class="muted">–</span>'}</td><td class="mono muted hm" style="font-size:12px">${esc(r.ref)}${r.notes ? ` <span class="muted" style="font-family:var(--font-sans)">· ${esc(r.notes)}</span>` : ""}</td></tr>`;
       });
     });
     if (!h) h = `<tr><td colspan="8" class="empty">${!loaded ? "Loading…" : rows.length ? "Nothing matches these filters." : `No ${stType === "bolts" ? "bolts" : "raw steel"} logged yet. Use <strong>+ Log received</strong> to add the first delivery.`}</td></tr>`;
     $("rows").innerHTML = h;
     const fi = isBolt(stType) ? unitTxt(list, (r) => (isOut(r) ? 0 : pcs(r))) : fmt(sumIn(list)), fo = isBolt(stType) ? unitTxt(list, (r) => (isOut(r) ? pcs(r) : 0)) : fmt(sumOut(list));
-    $("showing").textContent = list.length ? `${rangeName}${st.size ? ", " + st.size : ""}${st.combo ? ", " + labOf(st.combo) : ""}: +${fi} received, −${fo} shipped · ${dayKeys.length} day${dayKeys.length === 1 ? "" : "s"} · newest first` : "";
+    $("showing").textContent = list.length ? `${rangeName}${st.size ? ", " + st.size : ""}${st.combo ? ", " + labOf(st.combo) : ""}: +${fi} received, −${fo} out · ${dayKeys.length} day${dayKeys.length === 1 ? "" : "s"} · newest first` : "";
     // on hand by size + length (always the whole yard)
     const keys = [...oh.keys()].filter((k) => oh.get(k).q !== 0 || st.combo === k).sort((a, b) => { const [sa, la] = a.split("|"), [sb, lb] = b.split("|"); return sizeSort(sa, sb) || lenSort(la, lb); });
     const mx = Math.max(1, ...keys.map((k) => oh.get(k).inn));
     const gone = [...oh.keys()].filter((k) => oh.get(k).q === 0 && st.combo !== k).length;
-    $("bays").innerHTML = `<h3>On hand by size</h3>` + keys.map((k) => { const [s, l, u] = k.split("|"), v = oh.get(k); return `<button class="bay${v.q < 0 ? " negb" : ""}" type="button" data-combo="${esc(k)}" aria-pressed="${st.combo === k}"><span class="bn"><span class="mono">${esc(s)}</span>${l ? " × " + esc(l) : ""}</span><span class="bv">${qtyU(v.q, u)}</span><span class="bar"><i style="width:${Math.max(0, Math.round(100 * v.q / mx))}%"></i></span><span class="bs">${fmt(v.inn)} in${v.out ? " · " + fmt(v.out) + " out" : ""}</span></button>`; }).join("") +
+    $("bays").innerHTML = `<h3>On hand by size</h3>` + keys.map((k) => { const [s, l, u] = k.split("|"), v = oh.get(k); return `<button class="bay${v.q < 0 ? " negb" : ""}" type="button" data-combo="${esc(k)}" aria-pressed="${st.combo === k}"><span class="bn"><span class="mono">${esc(s)}</span>${l ? " × " + esc(l) : ""}</span><span class="bv">${qtyU(v.q, u)}</span><span class="bar"><i style="width:${Math.max(0, Math.round(100 * v.q / mx))}%"></i></span><span class="bs">${bayDetail(v)}</span></button>`; }).join("") +
       `<div class="bay all"><div class="bn"><strong>All ${stType === "bolts" ? "bolts" : "raw steel"} on hand</strong></div><div class="bv">${isBolt(stType) ? esc(unitTxt(rows, (r) => Number(r.qty))) : fmt(onHand)}</div></div><div class="hint" style="margin-top:4px">${gone ? `${gone} size${gone === 1 ? "" : "s"} fully shipped out (hidden). ` : ""}Click a size to see its history${st.combo ? ' · <a href="#" id="clearCombo">show all</a>' : ""}.</div>`;
   }
 
@@ -588,7 +611,7 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
     const tIn = sumIn(src), tOut = sumOut(src), tOn = tIn - tOut;
     $("chartLab").innerHTML = isBolt(stType)
       ? `Bolts summary · on hand by size · <span style="color:var(--steel)">■</span> on hand <span style="color:var(--accent)">■</span> shipped out`
-      : `Steel summary · <strong>${fmt(tOn)}</strong> on hand of ${fmt(tIn)} received (${tIn ? Math.round(100 * tOn / tIn) : 0}%) · <span style="color:var(--steel)">■</span> on hand <span style="color:var(--accent)">■</span> shipped out`;
+      : `Steel summary · <strong>${fmt(tOn)}</strong> on hand of ${fmt(tIn)} received (${tIn ? Math.round(100 * tOn / tIn) : 0}%) · <span style="color:var(--steel)">■</span> on hand <span style="color:var(--c3)">■</span> used in fab <span style="color:var(--accent)">■</span> shipped out`;
     if (!keys.length) { $("chart").innerHTML = `<div class="empty" style="padding:14px">Nothing logged yet.</div>`; return; }
     const n = keys.length, W = 1000, H = 150, top = 22, base = H - 34;
     const slot = W / n, bw = Math.min(70, slot * 0.6);
@@ -596,12 +619,14 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
     let g = "";
     keys.forEach((k, i) => {
       const v = oh.get(k), [s, l, u] = k.split("|"), cx = slot * i + slot / 2, x = cx - bw / 2;
-      const hIn = Math.round((base - top) * v.inn / mx), hOn = Math.round((base - top) * Math.max(0, v.q) / mx), hOut = hIn - hOn;
-      g += `<g${st.combo === k ? ' class="selb"' : ""} data-combo="${esc(k)}" style="cursor:pointer"><title>${esc(labOf(k))}: ${fmt(v.q)} on hand · ${fmt(v.inn)} received · ${fmt(v.out)} shipped out</title>`;
+      const sc = (n) => Math.round((base - top) * n / mx);
+      const hIn = sc(v.inn), hOn = sc(Math.max(0, v.q)), hFab = Math.min(sc(v.fab), hIn - hOn), hOut = hIn - hOn - hFab;
+      g += `<g${st.combo === k ? ' class="selb"' : ""} data-combo="${esc(k)}" style="cursor:pointer"><title>${esc(labOf(k))}: ${fmt(v.q)} on hand · ${fmt(v.inn)} received · ${fmt(v.out)} shipped out · ${fmt(v.fab)} used in fab</title>`;
       g += `<rect x="${x.toFixed(1)}" y="${top}" width="${bw.toFixed(1)}" height="${base - top}" fill="transparent"/>`;
       if (hOut > 0) g += `<rect x="${x.toFixed(1)}" y="${base - hIn}" width="${bw.toFixed(1)}" height="${hOut}" rx="2" fill="var(--accent)" opacity=".85"/>`;
+      if (hFab > 0) g += `<rect x="${x.toFixed(1)}" y="${base - hOn - hFab}" width="${bw.toFixed(1)}" height="${hFab}" fill="var(--c3)"/>`;
       g += `<rect x="${x.toFixed(1)}" y="${base - Math.max(hOn, 1)}" width="${bw.toFixed(1)}" height="${Math.max(hOn, 1)}" rx="2" fill="${v.q < 0 ? "var(--warn)" : "var(--steel)"}"/>`;
-      g += `<text x="${cx.toFixed(1)}" y="${base - hIn - 6}" text-anchor="middle" font-size="15" font-weight="600">${fmt(v.q)}${v.out ? `<tspan class="ax" font-size="12" font-weight="400"> / ${fmt(v.inn)}</tspan>` : ""}</text>`;
+      g += `<text x="${cx.toFixed(1)}" y="${base - hIn - 6}" text-anchor="middle" font-size="15" font-weight="600">${fmt(v.q)}${v.out || v.fab ? `<tspan class="ax" font-size="12" font-weight="400"> / ${fmt(v.inn)}</tspan>` : ""}</text>`;
       g += `<text class="ax" x="${cx.toFixed(1)}" y="${base + 16}" text-anchor="middle" font-size="12.5">${esc(s.length > 14 ? s.slice(0, 13) + "…" : s)}</text>`;
       g += `<text class="ax" x="${cx.toFixed(1)}" y="${base + 30}" text-anchor="middle" font-size="12">${esc((l || "") + (u && u !== "pcs" ? " " + u : ""))}</text></g>`;
     });
@@ -609,7 +634,7 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
   }
   function renderDaily() {
     const t = todayIso(), n = 14, W = 1000, H = 92, bw = W / n;
-    const src = rows.filter((r) => (!st.size || r.size === st.size) && (!st.combo || comboOf(r) === st.combo));
+    const src = rows.filter((r) => (!st.size || r.size === st.size) && (!st.combo || grpOf(r) === st.combo));
     const pin = new Map(), pout = new Map();
     src.forEach((r) => { const m = isOut(r) ? pout : pin; m.set(r.rec_date, (m.get(r.rec_date) || 0) + pcs(r)); });
     const ds = []; for (let i = n - 1; i >= 0; i--) ds.push(addDays(t, -i));
@@ -660,6 +685,7 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
   }
   const readBy = () => { const sv = $("f-by-sel").value; return sv === "__other" ? $("f-by").value.trim() : sv; };
   function openForm(id, kind) {
+    sheetMode = "form";
     editing = id || null;
     const r = id ? rows.find((x) => x.id === id) : null;
     const lines = r ? [r] : [{}, {}, {}, {}];
@@ -695,7 +721,7 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
       const [s, l, u] = b.dataset.pick.split("|"), v = oh.get(b.dataset.pick);
       let tr = [...body.children].find((x) => !x.querySelector('[data-k="size"]').value.trim() && !x.querySelector('[data-k="qty"]').value.trim());
       if (!tr) { body.insertAdjacentHTML("beforeend", lineRow(body.children.length)); tr = body.lastElementChild; }
-      const each = rows.find((x) => comboOf(x) === b.dataset.pick && x.lbs_each != null);
+      const each = isBolt(stType) ? rows.find((x) => grpOf(x) === b.dataset.pick && x.lbs_each != null) : null;
       tr.querySelector('[data-k="size"]').value = s; tr.querySelector('[data-k="length"]').value = l; tr.querySelector('[data-k="qty"]').value = v.q; const us = tr.querySelector('[data-k="unit"]'); if (us) us.value = u || "pcs";
       const le = tr.querySelector('[data-k="lbs_each"]'); le.value = each ? each.lbs_each : (isBolt(stType) ? "" : autoEach(s, l) ?? ""); le.dataset.auto = each ? "0" : "1";
       tr.querySelector('[data-k="qty"]').select(); tr.querySelector('[data-k="qty"]').focus(); updateTotals();
@@ -723,9 +749,9 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
   function overShip(ls) {
     if (formKind !== "out") return [];
     const oh = onHandMap(), want = new Map();
-    ls.forEach((l) => { const k = normSizeT(l.size, stType) + "|" + normLenT(l.length, stType) + "|" + (l.unit || "pcs"); want.set(k, (want.get(k) || 0) + (Number(String(l.qty).replace(/,/g, "")) || 0)); });
+    ls.forEach((l) => { const k = grpKey(stType, normSizeT(l.size, stType), normLenT(l.length, stType), l.unit); want.set(k, (want.get(k) || 0) + (Number(String(l.qty).replace(/,/g, "")) || 0)); });
     const cur = editing ? rows.find((x) => x.id === editing) : null;
-    return [...want.entries()].map(([k, q]) => { let have = (oh.get(k) || { q: 0 }).q; if (cur && comboOf(cur) === k) have -= Number(cur.qty); return [k, q, have]; }).filter(([, q, have]) => q > have);
+    return [...want.entries()].map(([k, q]) => { let have = (oh.get(k) || { q: 0 }).q; if (cur && grpOf(cur) === k) have -= Number(cur.qty); return [k, q, have]; }).filter(([, q, have]) => q > have);
   }
   function updateTotals() {
     if (!$("lgBody")) return;
@@ -736,7 +762,7 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
     const ov = overShip(ls);
     $("overWarn").textContent = ov.length ? "More than what's on hand: " + ov.map(([k, q, have]) => `${labOf(k)} (shipping ${q}, on hand ${Math.max(0, have)})`).join("; ") + ". You can still save it." : "";
   }
-  function closeForm() { $("sheet").classList.remove("open"); $("sheet").setAttribute("aria-hidden", "true"); $("scrim").classList.remove("open"); editing = null; }
+  function closeForm() { sheetMode = "form"; $("sheet").classList.remove("open"); $("sheet").setAttribute("aria-hidden", "true"); $("scrim").classList.remove("open"); editing = null; }
   const newId = () => "rs-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
 
   async function saveForm() {
@@ -776,6 +802,111 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
   }
   const saveErr = (e) => (/save_yard_item|item_type|raw_steel|function|schema cache/i.test(e.message || "") ? "Bolts need a one-time update. Run add-bolts.sql in Supabase, then try again." : "Couldn't save: " + (e.message || "connection problem"));
 
+  // ---------- fab tracker upload ----------
+  // Reads the fab tracker workbook. Every piece marked Fab complete (or later: painted, shipped) becomes
+  // one "used in fab" line that subtracts from that steel size. Each piece mark has a fixed id (fab-<mark>),
+  // so uploading the same tracker again never subtracts a piece twice.
+  let sheetMode = "form", pendingImport = null;
+  const slug = (s) => String(s).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "x";
+  const DONE_RE = /fab(rication)?\s*complete|complete|done|finished|painted|galv|shipped|delivered/i;
+  const NOT_DONE_RE = /\bnot\b|incomplete|in\s*fab|in\s*progress|pending|hold/i;
+  function cellDate(v) {
+    if (v instanceof Date && !isNaN(v)) return isoOf(new Date(v.getTime() + 12 * 3600e3));
+    if (typeof v === "number" && v > 20000 && v < 80000) { const d = new Date(Math.round((v - 25569) * 864e5) + 12 * 3600e3); return d.toISOString().slice(0, 10); }
+    const s = String(v || "").trim(); if (!s) return "";
+    let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/); if (m) { const y = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]); return y + "-" + pad(m[1]) + "-" + pad(m[2]); }
+    m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[0] : "";
+  }
+  function readFabWorkbook(wb) {
+    for (const name of wb.SheetNames) {
+      const aoa = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: "" });
+      for (let h = 0; h < Math.min(aoa.length, 25); h++) {
+        const hdr = aoa[h].map((c) => { const t = String(c || "").trim().toLowerCase(); return t.length > 40 ? "" : t; }); // skip long instruction text
+        const find = (re, not) => hdr.findIndex((c) => re.test(c) && !(not && not.test(c)));
+        const col = { mark: find(/piece|mark/), size: find(/size|shape|section|member/), len: find(/length|lgth/), qty: find(/^qty|quantity|^pcs|count/), status: find(/status|stage|progress/),
+          date: find(/complete.*date|date.*complete|fab.*date|^date/), by: find(/completed by|fab(ricated)? by|^by$|fitter|welder|by$/), job: find(/job|seq|sequence|area/) };
+        if (col.mark >= 0 && col.size >= 0 && col.status >= 0 && new Set([col.mark, col.size, col.status]).size === 3) return { sheet: name, col, rows: aoa.slice(h + 1).map((r, i) => ({ r, line: h + i + 2 })) };
+      }
+    }
+    return null;
+  }
+  async function onFabFile(file) {
+    if (!file) return;
+    if (!window.XLSX) { toast("Excel reader didn't load. Check your connection."); return; }
+    let wb; try { wb = XLSX.read(await file.arrayBuffer(), { cellDates: true }); } catch (e) { toast("Couldn't read that file. Save it as .xlsx and try again."); return; }
+    const found = readFabWorkbook(wb);
+    if (!found) { toast("Couldn't find the columns. The tracker needs Piece Mark, Size and Status headers.", 5000); return; }
+    const { col } = found, get = (r, k) => (col[k] >= 0 ? r[col[k]] : "");
+    const existing = new Map(allRows.filter(isFab).map((r) => [r.id, r]));
+    const seen = new Map(), want = new Map(), notDone = new Set(), skipped = [];
+    let total = 0, done = 0;
+    for (const { r, line } of found.rows) {
+      const mark = String(get(r, "mark") || "").trim(); if (!mark) continue;
+      total++;
+      const n = (seen.get(slug(mark)) || 0) + 1; seen.set(slug(mark), n);
+      const id = "fab-" + slug(mark) + (n > 1 ? "-" + n : "");
+      const status = String(get(r, "status") || "").trim();
+      if (!DONE_RE.test(status) || NOT_DONE_RE.test(status)) { notDone.add(id); continue; }
+      done++;
+      const size = normSize(get(r, "size")), len = normLen(String(get(r, "len") || "").trim());
+      const qtyRaw = String(get(r, "qty") ?? "").replace(/,/g, "").trim(), qty = qtyRaw === "" ? 1 : Number(qtyRaw);
+      if (!size) { skipped.push(`Row ${line} (${mark}): no size`); continue; }
+      if (!(qty > 0) || Math.round(qty) !== qty) { skipped.push(`Row ${line} (${mark}): quantity "${qtyRaw}"`); continue; }
+      const prev = existing.get(id), each = autoEach(size, len), job = String(get(r, "job") || "").trim();
+      want.set(id, { id, rec_date: cellDate(get(r, "date")) || (prev ? prev.rec_date : todayIso()), item_type: "steel", unit: "pcs", size, length: "", qty: -qty,
+        lbs_each: each == null ? "" : String(each), ref: "Fab tracker", notes: [mark, len, job].filter(Boolean).join(" · "), by_name: String(get(r, "by") || "").trim() || (prev ? prev.by_name || "" : "") });
+    }
+    const add = [], upd = [], same = [];
+    want.forEach((w, id) => { const p = existing.get(id); if (!p) add.push(w); else if (p.size !== w.size || Number(p.qty) !== w.qty || p.rec_date !== w.rec_date || (p.notes || "") !== w.notes || (p.by_name || "") !== w.by_name || String(p.lbs_each ?? "") !== w.lbs_each) upd.push(w); else same.push(w); });
+    const del = [...notDone].filter((id) => existing.has(id)).map((id) => existing.get(id));
+    pendingImport = { add, upd, del, file: file.name, total, done, skipped, same: same.length };
+    openImportPreview();
+  }
+  function openImportPreview() {
+    const P = pendingImport, steelSizes = new Set(allRows.filter((r) => r.item_type === "steel" && !isFab(r)).map((r) => r.size));
+    sheetMode = "import"; stType = "steel"; render();
+    const bySize = (list, sign) => { const m = new Map(); list.forEach((w) => m.set(w.size, (m.get(w.size) || 0) + Math.abs(w.qty))); return [...m.entries()].sort((a, b) => sizeSort(a[0], b[0])).map(([s, q]) => `<tr><td class="mono">${esc(s)}${steelSizes.has(s) ? "" : ' <span class="kind out" title="This size has never been received into the yard">not in yard</span>'}</td><td class="num">${sign}${fmt(q)}</td></tr>`).join(""); };
+    const oh = onHandMap(allRows.filter((r) => r.item_type === "steel"));
+    const after = new Map(); [...P.add, ...P.upd].forEach((w) => { const prev = allRows.find((r) => r.id === w.id); after.set(w.size, (after.get(w.size) || 0) + w.qty - (prev && prev.size === w.size ? Number(prev.qty) : 0)); if (prev && prev.size !== w.size) after.set(prev.size, (after.get(prev.size) || 0) - Number(prev.qty)); });
+    P.del.forEach((r) => after.set(r.size, (after.get(r.size) || 0) - Number(r.qty)));
+    const short = [...after.entries()].map(([s, d]) => [s, ((oh.get(s + "||pcs") || { q: 0 }).q) + d]).filter(([, q]) => q < 0);
+    const nothing = !P.add.length && !P.upd.length && !P.del.length;
+    $("sheetKicker").textContent = "Fab tracker · " + P.file;
+    $("sheetTitle").textContent = nothing ? "Already up to date" : "Update yard from fab tracker";
+    $("delBtn").hidden = true;
+    $("saveBtn").textContent = nothing ? "Close" : "Apply to yard";
+    $("sheetBody").innerHTML = `
+      <p>${fmt(P.total)} pieces in the tracker · <strong>${fmt(P.done)} fab complete</strong>${P.same ? ` · ${fmt(P.same)} already counted` : ""}</p>
+      ${P.add.length ? `<div><div class="clab">New fab complete — will subtract from the yard (${fmt(P.add.reduce((s, w) => s - w.qty, 0))} pcs)</div><table class="lgrid"><tbody>${bySize(P.add, "−")}</tbody></table></div>` : ""}
+      ${P.upd.length ? `<div><div class="clab">Changed in the tracker — will be updated (${fmt(P.upd.length)} piece${P.upd.length === 1 ? "" : "s"})</div><p class="hint" style="margin:2px 0">${P.upd.slice(0, 12).map((w) => esc(w.notes.split(" · ")[0])).join(", ")}${P.upd.length > 12 ? "…" : ""}</p></div>` : ""}
+      ${P.del.length ? `<div><div class="clab">No longer fab complete — will be added back to the yard</div><table class="lgrid"><tbody>${bySize(P.del.map((r) => ({ size: r.size, qty: r.qty })), "+")}</tbody></table></div>` : ""}
+      ${short.length ? `<div class="pcerr">After this, more will be used than was received for: ${short.map(([s, q]) => esc(s) + " (" + fmt(q) + ")").join(", ")}. A delivery may not be logged yet, or the size is typed differently in the tracker.</div>` : ""}
+      ${P.skipped.length ? `<div class="pcerr">Skipped ${P.skipped.length} fab-complete row${P.skipped.length === 1 ? "" : "s"}: ${P.skipped.slice(0, 8).map(esc).join("; ")}${P.skipped.length > 8 ? "…" : ""}</div>` : ""}
+      ${nothing ? `<p class="hint">Nothing new to change. Pieces already counted are never subtracted twice.</p>` : `<p class="hint">Uploading the same tracker again is safe: each piece mark is only ever subtracted once.</p>`}`;
+    $("sheet").classList.add("open"); $("sheet").setAttribute("aria-hidden", "false"); $("scrim").classList.add("open");
+  }
+  async function applyImport() {
+    const P = pendingImport; if (!P) return;
+    if (!P.add.length && !P.upd.length && !P.del.length) { closeForm(); return; }
+    if (hasByCol === false) { toast("One more setup step: run add-received-by.sql in Supabase, then try again.", 5000); return; }
+    const jobs = [...P.add, ...P.upd].map((w) => ["save", w]).concat(P.del.map((r) => ["del", r.id]));
+    $("saveBtn").disabled = true;
+    try {
+      await withCode(async (code) => {
+        let doneN = 0; const N = jobs.length;
+        for (let i = 0; i < N; i += 6) {
+          await Promise.all(jobs.slice(i, i + 6).map(([k, v]) => (k === "save"
+            ? rest("/rest/v1/rpc/save_yard_item", { method: "POST", body: JSON.stringify({ p_code: code, p_row: v }) })
+            : rest("/rest/v1/rpc/delete_raw_steel", { method: "POST", body: JSON.stringify({ p_code: code, p_id: v }) })).then(() => { doneN++; $("saveBtn").textContent = `Saving ${doneN}/${N}…`; })));
+        }
+      });
+      const sub = P.add.reduce((s, w) => s - w.qty, 0);
+      closeForm(); toast(`Yard updated from fab tracker: −${fmt(sub)} pcs new${P.upd.length ? `, ${P.upd.length} changed` : ""}${P.del.length ? `, ${P.del.length} added back` : ""}.`, 4500);
+      pendingImport = null; await refresh();
+    } catch (e) { if (e.code !== "cancelled") toast(saveErr(e)); await refresh(); }
+    finally { $("saveBtn").disabled = false; }
+  }
+
   // ---------- export ----------
   function exportXlsx() {
     if (!window.XLSX) { toast("Excel export didn't load. Check your connection."); return; }
@@ -785,12 +916,12 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
     ["steel", "bolts"].forEach((t) => {
       const src = allRows.filter((r) => r.item_type === t); if (!src.length && t === "bolts") return;
       const oh = onHandMap(src), keys = [...oh.keys()].sort(keySort);
-      const d0 = [["Size", "Length", "Unit", "Received", "Shipped out", "On hand", "Lbs on hand"]].concat(keys.map((k) => { const [s, l, u] = k.split("|"), v = oh.get(k); return [s, l, u, v.inn, v.out, v.q, v.w || null]; }));
+      const d0 = [["Size", "Length", "Unit", "Received", "Shipped out", "Used in fab", "On hand", "Lbs on hand"]].concat(keys.map((k) => { const [s, l, u] = k.split("|"), v = oh.get(k); return [s, l || (t === "steel" ? "all" : ""), u, v.inn, v.out, v.fab, v.q, v.w || null]; }));
       const ws0 = XLSX.utils.aoa_to_sheet(d0); ws0["!cols"] = [{ wch: 18 }, { wch: 9 }, { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 9 }, { wch: 12 }];
       XLSX.utils.book_append_sheet(wb, ws0, (t === "bolts" ? "Bolts" : "Raw steel") + " on hand");
     });
     const list = allRows.slice().sort((a, b) => a.rec_date.localeCompare(b.rec_date) || a.item_type.localeCompare(b.item_type) || isOut(a) - isOut(b) || sizeSort(a.size, b.size) || lenSort(a.length, b.length));
-    const d2 = [["Date", "Item", "Type", "Size", "Length", "Qty (+in / −out)", "Unit", "Lbs each", "Total lbs", "Received / shipped by", "Manifest / BOL", "Notes"]].concat(list.map((r) => [parseIso(r.rec_date), r.item_type === "bolts" ? "Bolts" : "Raw steel", isOut(r) ? "Shipped out" : "Received", r.size, r.length, Number(r.qty), unitOf(r), r.lbs_each == null || r.lbs_each === "" ? null : Number(r.lbs_each), lineLbs(r) == null ? null : (isOut(r) ? -1 : 1) * lineLbs(r), r.by_name || "", r.ref, r.notes]));
+    const d2 = [["Date", "Item", "Type", "Size", "Length", "Qty (+in / −out)", "Unit", "Lbs each", "Total lbs", "Received / shipped by", "Manifest / BOL", "Notes"]].concat(list.map((r) => [parseIso(r.rec_date), r.item_type === "bolts" ? "Bolts" : "Raw steel", isFab(r) ? "Used in fab" : isOut(r) ? "Shipped out" : "Received", r.size, r.length, Number(r.qty), unitOf(r), r.lbs_each == null || r.lbs_each === "" ? null : Number(r.lbs_each), lineLbs(r) == null ? null : (isOut(r) ? -1 : 1) * lineLbs(r), r.by_name || "", r.ref, r.notes]));
     const ws2 = XLSX.utils.aoa_to_sheet(d2, { cellDates: true }); ws2["!cols"] = [{ wch: 11 }, { wch: 10 }, { wch: 11 }, { wch: 18 }, { wch: 9 }, { wch: 14 }, { wch: 8 }, { wch: 10 }, { wch: 11 }, { wch: 20 }, { wch: 24 }, { wch: 30 }]; dateCells(ws2, d2.length);
     XLSX.utils.book_append_sheet(wb, ws2, "All lines");
     XLSX.writeFile(wb, `yard-inventory-${todayIso()}.xlsx`);
@@ -860,7 +991,9 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
   $("shipBtn").onclick = () => openForm(null, "out");
   $("exportBtn").onclick = exportXlsx;
   $("closeSheet").onclick = $("cancelBtn").onclick = $("scrim").onclick = closeForm;
-  $("saveBtn").onclick = saveForm;
+  $("saveBtn").onclick = () => (sheetMode === "import" ? applyImport() : saveForm());
+  $("fabBtn").onclick = () => { $("fabFile").value = ""; $("fabFile").click(); };
+  $("fabFile").onchange = (e) => { const f = e.target.files[0]; e.target.value = ""; onFabFile(f); };
   $("delBtn").onclick = deleteLine;
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("sheet").classList.contains("open") && $("pcDlg").hidden) closeForm(); });
 

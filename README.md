@@ -32,3 +32,9 @@ It keeps its own data in the `raw_steel` table and does not read or change the m
 Run `raw-steel-setup.sql` once in the Supabase SQL Editor to create the table.
 Bolts (and units like boxes or kegs) need `add-bolts.sql` run once as well.
 The "Received by / Shipped by" column needs `add-received-by.sql` run once (it also includes the bolts columns).
+
+## Fab tracker upload
+
+`fab-tracker-template.xlsx` is the fab tracker. On the Yard Inventory page, **⇪ Upload fab tracker** reads it:
+every row whose Status is Fab complete (or Painted / Shipped) subtracts its Qty from that steel Size, once per piece mark
+(line id `fab-<piece mark>`), so re-uploading is safe. A piece switched back to an earlier status is added back.
