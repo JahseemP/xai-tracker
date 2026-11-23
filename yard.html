@@ -357,6 +357,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
 .chk { display:flex; gap:8px; align-items:center; margin-top:6px; font-size:13px; }
 .kind.drop { background: var(--good-soft); color: var(--good); }
 .dropl { color: var(--good); }
+.lastcut { font-weight:600; color:var(--ink); } .lastcut.never { color:var(--muted); font-weight:500; } .lastcut.old { color:var(--warn); }
 .kind.fab { background: color-mix(in srgb, var(--c3) 18%, transparent); color: var(--c3); }
 .kind.in { background: var(--good-soft); color: var(--good); } .kind.out { background: var(--warn-soft); color: var(--warn); }
 .bay .bs { grid-column:1/-1; font-size:11px; color:var(--muted); }
@@ -544,8 +545,9 @@ details.ign summary { cursor:pointer; color:var(--muted); }
   function onHandMap(src = rows) {
     const m = new Map();
     src.forEach((r) => {
-      const k = grpOf(r); const v = m.get(k) || { q: 0, w: 0, inn: 0, out: 0, fab: 0, drop: 0, lens: new Map(), std: new Set() };
+      const k = grpOf(r); const v = m.get(k) || { q: 0, w: 0, inn: 0, out: 0, fab: 0, drop: 0, lens: new Map(), std: new Set(), lastCut: "" };
       v.q += Number(r.qty || 0); v.w += (isOut(r) ? -1 : 1) * (lineLbs(r) || 0);
+      if (isFab(r) && isOut(r) && r.rec_date > v.lastCut) v.lastCut = r.rec_date;
       if (isDrop(r)) v.drop += pcs(r); else if (isFab(r)) v.fab += pcs(r); else if (isOut(r)) v.out += pcs(r); else { v.inn += pcs(r); if (r.length) v.std.add(r.length); }
       if (r.length) v.lens.set(r.length, (v.lens.get(r.length) || 0) + Number(r.qty || 0));
       m.set(k, v);
@@ -553,8 +555,15 @@ details.ign summary { cursor:pointer; color:var(--muted); }
     return m;
   }
 
+  function lastCutTxt(d) {
+    if (!d) return `<span class="lastcut never">Last cut: never</span>`;
+    const days = Math.round((parseIso(todayIso()) - parseIso(d)) / 864e5);
+    const ago = days <= 0 ? "today" : days === 1 ? "yesterday" : days + " days ago";
+    return `<span class="lastcut${days >= 14 ? " old" : ""}">Last cut: ${esc(dayLabel(d))} · ${ago}</span>`;
+  }
   function bayDetail(v) {
     const parts = [];
+    if (!isBolt(stType)) parts.push(lastCutTxt(v.lastCut));
     if (!isBolt(stType)) {
       const ls = [...v.lens.entries()].filter(([, q]) => q).sort((a, b) => lenSort(b[0], a[0]));
       const neg = ls.filter(([, q]) => q < 0), pos = ls.filter(([, q]) => q > 0);
@@ -658,7 +667,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
       const v = oh.get(k), [s, l, u] = k.split("|"), cx = slot * i + slot / 2, x = cx - bw / 2;
       const sc = (n) => Math.round((base - top) * n / mx);
       const hIn = sc(v.inn), hOn = sc(Math.max(0, v.q)), hFab = Math.min(sc(v.fab), hIn - hOn), hOut = hIn - hOn - hFab;
-      g += `<g${st.combo === k ? ' class="selb"' : ""} data-combo="${esc(k)}" style="cursor:pointer"><title>${esc(labOf(k))}: ${fmt(v.q)} on hand · ${fmt(v.inn)} received · ${fmt(v.out)} shipped out · ${fmt(v.fab)} used in fab</title>`;
+      g += `<g${st.combo === k ? ' class="selb"' : ""} data-combo="${esc(k)}" style="cursor:pointer"><title>${esc(labOf(k))}: ${fmt(v.q)} on hand · ${fmt(v.inn)} received · ${fmt(v.out)} shipped out · ${fmt(v.fab)} used in fab${v.lastCut ? " · last cut " + dayLabel(v.lastCut) : ""}</title>`;
       g += `<rect x="${x.toFixed(1)}" y="${top}" width="${bw.toFixed(1)}" height="${base - top}" fill="transparent"/>`;
       if (hOut > 0) g += `<rect x="${x.toFixed(1)}" y="${base - hIn}" width="${bw.toFixed(1)}" height="${hOut}" rx="2" fill="var(--accent)" opacity=".85"/>`;
       if (hFab > 0) g += `<rect x="${x.toFixed(1)}" y="${base - hOn - hFab}" width="${bw.toFixed(1)}" height="${hFab}" fill="var(--c3)"/>`;
@@ -1066,8 +1075,9 @@ details.ign summary { cursor:pointer; color:var(--muted); }
     ["steel", "bolts"].forEach((t) => {
       const src = allRows.filter((r) => r.item_type === t); if (!src.length && t === "bolts") return;
       const oh = onHandMap(src), keys = [...oh.keys()].sort(keySort);
-      const d0 = [["Size", "Length", "Unit", "Received", "Shipped out", "Used in fab", "On hand", "Lbs on hand"]].concat(keys.map((k) => { const [s, l, u] = k.split("|"), v = oh.get(k); return [s, l || (t === "steel" ? "all" : ""), u, v.inn, v.out, v.fab, v.q, v.w || null]; }));
-      const ws0 = XLSX.utils.aoa_to_sheet(d0); ws0["!cols"] = [{ wch: 18 }, { wch: 9 }, { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 9 }, { wch: 12 }];
+      const d0 = [["Size", "Length", "Unit", "Received", "Shipped out", "Used in fab", "Drops back", "On hand", "Lbs on hand", "Last cut"]].concat(keys.map((k) => { const [s, l, u] = k.split("|"), v = oh.get(k); return [s, l || (t === "steel" ? "all" : ""), u, v.inn, v.out, v.fab, v.drop, v.q, v.w || null, v.lastCut ? parseIso(v.lastCut) : null]; }));
+      const ws0 = XLSX.utils.aoa_to_sheet(d0, { cellDates: true }); ws0["!cols"] = [{ wch: 18 }, { wch: 9 }, { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 11 }, { wch: 11 }, { wch: 9 }, { wch: 12 }, { wch: 11 }];
+      for (let i = 1; i < d0.length; i++) { const c = ws0[XLSX.utils.encode_cell({ r: i, c: 9 })]; if (c && c.t === "d") c.z = "m/d/yyyy"; }
       XLSX.utils.book_append_sheet(wb, ws0, (t === "bolts" ? "Bolts" : "Raw steel") + " on hand");
     });
     const list = allRows.slice().sort((a, b) => a.rec_date.localeCompare(b.rec_date) || a.item_type.localeCompare(b.item_type) || isOut(a) - isOut(b) || sizeSort(a.size, b.size) || lenSort(a.length, b.length));
