@@ -38,3 +38,7 @@ The "Received by / Shipped by" column needs `add-received-by.sql` run once (it a
 `fab-tracker-template.xlsx` is the fab tracker. On the Yard Inventory page, **⇪ Upload fab tracker** reads it:
 every row whose Status is Fab complete (or Painted / Shipped) subtracts its Qty from that steel Size, once per piece mark
 (line id `fab-<piece mark>`), so re-uploading is safe. A piece switched back to an earlier status is added back.
+The upload also reads the project trackers (DRY_Cooler: Piece Mark / Main Material / Qty with QC-Galv-Ship stages;
+SPAM: DH / Piece mark / Size with a Fab complete date and Raw source). Only SOLC-sourced pieces in sizes the yard
+stocks, fab complete on/after the start date (saved in app_settings `fab-import`), are counted.
+Run `add-fab-batch.sql` once so big uploads save in batches.

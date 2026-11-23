@@ -345,6 +345,9 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
 @media (prefers-color-scheme: dark) { #fabTpl { background:#3d3510; border-color:#7a6a1f; color:#f5e7a1; } }
 a.btn { text-decoration:none; display:inline-flex; align-items:center; color:var(--ink); }
 .btn[hidden] { display:none; }
+details.ign { border:1px solid var(--line); border-radius:8px; padding:6px 10px; font-size:13px; }
+details.ign summary { cursor:pointer; color:var(--muted); }
+.chk { display:flex; gap:8px; align-items:center; margin-top:6px; font-size:13px; }
 .kind.fab { background: color-mix(in srgb, var(--c3) 18%, transparent); color: var(--c3); }
 .kind.in { background: var(--good-soft); color: var(--good); } .kind.out { background: var(--warn-soft); color: var(--warn); }
 .bay .bs { grid-column:1/-1; font-size:11px; color:var(--muted); }
@@ -448,8 +451,9 @@ a.btn { text-decoration:none; display:inline-flex; align-items:center; color:var
   function lbPerFt(size) { const m = String(size).match(/^(?:W|S|M|HP)\d+(?:\.\d+)?x(\d+(?:\.\d+)?)$/); return m ? Number(m[1]) : null; }
   function feetOf(len) {
     const s = String(len || "").trim(); if (!s) return null;
-    const m = s.match(/^(\d+(?:\.\d+)?)\s*(?:'|ft|’)?\s*(?:-?\s*(\d+(?:\.\d+)?)\s*(?:"|in|”)?)?$/i);
-    if (!m) return null; return Number(m[1]) + (m[2] ? Number(m[2]) / 12 : 0);
+    // 40'  ·  23'-4"  ·  32'-8 7/16"  ·  9'-10 13/16"
+    const m = s.match(/^(\d+(?:\.\d+)?)\s*(?:'|ft|’)?\s*(?:-?\s*(\d+(?:\.\d+)?)?\s*(?:(\d+)\/(\d+))?\s*(?:"|in|”)?)?$/i);
+    if (!m) return null; return Number(m[1]) + ((m[2] ? Number(m[2]) : 0) + (m[3] ? Number(m[3]) / Number(m[4]) : 0)) / 12;
   }
   function normLen(len) {
     const s = String(len || "").trim(); if (!s) return "";
@@ -581,7 +585,14 @@ a.btn { text-decoration:none; display:inline-flex; align-items:center; color:var
         : [qi ? `<span class="in">+${fmt(qi)}</span>` : "", qo ? `<span class="out">−${fmt(qo)}</span>` : ""].filter(Boolean).join(" ");
       const wtxt = [wIn(ls) ? `<span class="in">+${fmt(wIn(ls))}</span>` : "", wOut(ls) ? `<span class="out">−${fmt(wOut(ls))}</span>` : ""].filter(Boolean).join(" ") || '<span class="muted">–</span>';
       h += `<tr class="dayrow"><td colspan="3"><strong>${esc(dayLabel(d))}</strong></td><td class="num"><strong>${qtxt}</strong></td><td class="hm"></td><td class="num"><strong>${wtxt}</strong></td><td></td><td class="muted hm">${ls.length} line${ls.length === 1 ? "" : "s"}</td></tr>`;
-      ls.forEach((r) => {
+      // Fab-tracker pieces are rolled up to one line per size per day (there can be hundreds).
+      const fabG = new Map();
+      ls.filter(isFab).forEach((r) => { const k = r.size + "|" + r.ref; const g = fabG.get(k) || { size: r.size, ref: r.ref, q: 0, w: 0, hasW: false, marks: [], by: new Set() }; g.q += pcs(r); if (lineLbs(r) != null) { g.w += lineLbs(r); g.hasW = true; } g.marks.push((r.notes || "").split(" · ").slice(0, 2).join(" ")); if (r.by_name) g.by.add(r.by_name); fabG.set(k, g); });
+      [...fabG.values()].forEach((g) => {
+        const ml = g.marks.length;
+        h += `<tr class="fabrow" title="${esc(g.marks.join(", "))}"><td><span class="kind fab" title="Fab complete (from fab tracker)">FAB</span></td><td class="mono">${esc(g.size)}</td><td class="muted">${ml} piece${ml === 1 ? "" : "s"}</td><td class="num out">−${fmt(g.q)}</td><td class="num hm"></td><td class="num out">${g.hasW ? "−" + fmt(g.w) : "–"}</td><td class="byc">${g.by.size ? esc([...g.by].join(", ")) : '<span class="muted">–</span>'}</td><td class="mono muted hm" style="font-size:12px">${esc(g.ref)} <span class="muted" style="font-family:var(--font-sans)">· ${esc(g.marks.slice(0, 6).join(", "))}${ml > 6 ? ` +${ml - 6} more` : ""}</span></td></tr>`;
+      });
+      ls.filter((r) => !isFab(r)).forEach((r) => {
         const o = isOut(r);
         h += `<tr class="line${o ? " shipped-out" : ""}" data-id="${esc(r.id)}" tabindex="0"><td><span class="kind ${isFab(r) ? "fab" : o ? "out" : "in"}" title="${isFab(r) ? "Fab complete (from fab tracker)" : o ? "Shipped out" : "Received"}">${isFab(r) ? "FAB" : o ? "OUT" : "IN"}</span></td><td class="mono">${esc(r.size)}</td><td>${esc(r.length)}</td><td class="num ${o ? "out" : ""}">${o ? "−" : ""}${qtyU(pcs(r), unitOf(r))}</td><td class="num hm">${fmt(r.lbs_each)}</td><td class="num ${o ? "out" : ""}">${lineLbs(r) == null ? "–" : (o ? "−" : "") + fmt(lineLbs(r))}</td><td class="byc">${r.by_name ? esc(r.by_name) : '<span class="muted">–</span>'}</td><td class="mono muted hm" style="font-size:12px">${esc(r.ref)}${r.notes ? ` <span class="muted" style="font-family:var(--font-sans)">· ${esc(r.notes)}</span>` : ""}</td></tr>`;
       });
@@ -805,105 +816,167 @@ a.btn { text-decoration:none; display:inline-flex; align-items:center; color:var
   const saveErr = (e) => (/save_yard_item|item_type|raw_steel|function|schema cache/i.test(e.message || "") ? "Bolts need a one-time update. Run add-bolts.sql in Supabase, then try again." : "Couldn't save: " + (e.message || "connection problem"));
 
   // ---------- fab tracker upload ----------
-  // Reads the fab tracker workbook. Every piece marked Fab complete (or later: painted, shipped) becomes
-  // one "used in fab" line that subtracts from that steel size. Each piece mark has a fixed id (fab-<mark>),
-  // so uploading the same tracker again never subtracts a piece twice.
-  let sheetMode = "form", pendingImport = null;
+  // Works with the JP Fab Tracker template and with the project trackers (DRY_Cooler and SPAM sheets).
+  // Every piece that is fab complete becomes one "used in fab" line that subtracts its qty from that steel size.
+  // Each piece has a fixed id (fab-<sheet>-<area>-<mark>), so uploading the same tracker again never subtracts twice.
+  let sheetMode = "form", pendingImport = null, fabParsed = null;
+  let fabSettings = { cutoff: {}, includeOther: false, includeNotInYard: false };
   const slug = (s) => String(s).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "x";
-  const DONE_RE = /fab(rication)?\s*complete|complete|done|finished|painted|galv|shipped|delivered/i;
-  const NOT_DONE_RE = /\bnot\b|incomplete|in\s*fab|in\s*progress|pending|hold/i;
+  const DONE_RE = /fab(rication)?\s*complete|complete|done|finished|painted|galv|shipped|delivered|install|in\s*transit/i;
+  const NOT_DONE_RE = /\bnot\b|incomplete|in\s*fab|in\s*progress|pending|hold|on\s*track|delayed|late/i;
   function cellDate(v) {
     if (v instanceof Date && !isNaN(v)) return isoOf(new Date(v.getTime() + 12 * 3600e3));
     if (typeof v === "number" && v > 20000 && v < 80000) { const d = new Date(Math.round((v - 25569) * 864e5) + 12 * 3600e3); return d.toISOString().slice(0, 10); }
     const s = String(v || "").trim(); if (!s) return "";
-    let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/); if (m) { const y = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]); return y + "-" + pad(m[1]) + "-" + pad(m[2]); }
+    let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/); if (m) { const y = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]); return y + "-" + pad(m[1]) + "-" + pad(m[2]); }
     m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[0] : "";
   }
-  function readFabWorkbook(wb) {
+  // Finds every sheet that looks like a fab tracker and maps its columns.
+  function readFabSheets(wb) {
+    const out = [];
     for (const name of wb.SheetNames) {
       const aoa = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: "" });
       for (let h = 0; h < Math.min(aoa.length, 25); h++) {
-        const hdr = aoa[h].map((c) => { const t = String(c || "").trim().toLowerCase(); return t.length > 40 ? "" : t; }); // skip long instruction text
-        const find = (re, not) => hdr.findIndex((c) => re.test(c) && !(not && not.test(c)));
-        const col = { mark: find(/piece|mark/), size: find(/size|shape|section|member/), len: find(/length|lgth/), qty: find(/^qty|quantity|^pcs|count/), status: find(/status|stage|progress/),
-          date: find(/complete.*date|date.*complete|fab.*date|^date/), by: find(/completed by|fab(ricated)? by|^by$|fitter|welder|by$/), job: find(/job|seq|sequence|area/) };
-        if (col.mark >= 0 && col.size >= 0 && col.status >= 0 && new Set([col.mark, col.size, col.status]).size === 3) return { sheet: name, col, rows: aoa.slice(h + 1).map((r, i) => ({ r, line: h + i + 2 })) };
+        const hdr = aoa[h].map((c) => { const t = String(c || "").trim().toLowerCase().replace(/\s+/g, " "); return t.length > 60 ? "" : t; });
+        const first = (...res) => { for (const re of res) { const i = hdr.findIndex((c) => c && re.test(c)); if (i >= 0) return i; } return -1; };
+        const all = (re) => hdr.map((c, i) => (c && re.test(c) ? i : -1)).filter((i) => i >= 0);
+        const col = {
+          mark: first(/^piece ?mark$/, /piece ?mark|^mark$|^piece$/),
+          size: first(/^size$/, /main material|^shape$|^section$|^profile$/, /\bsize\b/),
+          len: first(/^length$/, /main length|length/),
+          qty: first(/^qty$/, /^qty|quantity|^pcs$/),
+          fabDate: first(/^fab complete$/, /fab(rication)? complete.*date|date.*fab(rication)? complete|^date complete$/),
+          by: first(/completed by|fab(ricated)? by|^fitter$|^welder$/),
+          area: first(/^dh$|^job ?#?$|^area$|^sequence$|^seq$/),
+          src: first(/raw source/),
+          status: all(/status/),
+          stagesDone: all(/^qc$|^galv|^ship$|^paint/),
+          stage: first(/current stage/),
+        };
+        if (col.mark >= 0 && col.size >= 0 && col.size !== col.mark) { out.push({ sheet: name, col, rows: aoa.slice(h + 1).map((r, i) => ({ r, line: h + i + 2 })) }); break; }
       }
     }
-    return null;
+    return out;
   }
   async function onFabFile(file) {
     if (!file) return;
     if (!window.XLSX) { toast("Excel reader didn't load. Check your connection."); return; }
     let wb; try { wb = XLSX.read(await file.arrayBuffer(), { cellDates: true }); } catch (e) { toast("Couldn't read that file. Save it as .xlsx and try again."); return; }
-    const found = readFabWorkbook(wb);
-    if (!found) { toast("Couldn't find the columns. The tracker needs Piece Mark, Size and Status headers.", 5000); return; }
-    const { col } = found, get = (r, k) => (col[k] >= 0 ? r[col[k]] : "");
-    const existing = new Map(allRows.filter(isFab).map((r) => [r.id, r]));
-    const seen = new Map(), want = new Map(), notDone = new Set(), skipped = [];
-    let total = 0, done = 0;
-    for (const { r, line } of found.rows) {
-      const mark = String(get(r, "mark") || "").trim(); if (!mark) continue;
-      total++;
-      const n = (seen.get(slug(mark)) || 0) + 1; seen.set(slug(mark), n);
-      const id = "fab-" + slug(mark) + (n > 1 ? "-" + n : "");
-      const status = String(get(r, "status") || "").trim();
-      if (!DONE_RE.test(status) || NOT_DONE_RE.test(status)) { notDone.add(id); continue; }
-      done++;
-      const size = normSize(get(r, "size")), len = normLen(String(get(r, "len") || "").trim());
-      const qtyRaw = String(get(r, "qty") ?? "").replace(/,/g, "").trim(), qty = qtyRaw === "" ? 1 : Number(qtyRaw);
-      if (!size) { skipped.push(`Row ${line} (${mark}): no size`); continue; }
-      if (!(qty > 0) || Math.round(qty) !== qty) { skipped.push(`Row ${line} (${mark}): quantity "${qtyRaw}"`); continue; }
-      const prev = existing.get(id), each = autoEach(size, len), job = String(get(r, "job") || "").trim();
-      want.set(id, { id, rec_date: cellDate(get(r, "date")) || (prev ? prev.rec_date : todayIso()), item_type: "steel", unit: "pcs", size, length: "", qty: -qty,
-        lbs_each: each == null ? "" : String(each), ref: "Fab tracker", notes: [mark, len, job].filter(Boolean).join(" · "), by_name: String(get(r, "by") || "").trim() || (prev ? prev.by_name || "" : "") });
+    const sheets = readFabSheets(wb);
+    if (!sheets.length) { toast("Couldn't find a fab tracker in that file. A sheet needs Piece Mark and Size (or Main Material) columns.", 5500); return; }
+    const pieces = [];
+    for (const S of sheets) {
+      const { col } = S, get = (r, i) => (i >= 0 ? r[i] : "");
+      const sk = slug(S.sheet), seen = new Map();
+      for (const { r, line } of S.rows) {
+        const mark = String(get(r, col.mark) || "").trim(); if (!mark) continue;
+        const area = String(get(r, col.area) || "").trim();
+        const base = "fab-" + sk + "-" + (area ? slug(area) + "-" : "") + slug(mark);
+        const n = (seen.get(base) || 0) + 1; seen.set(base, n);
+        const fabDate = cellDate(get(r, col.fabDate));
+        const statuses = col.status.map((i) => String(r[i] || "").trim()).filter(Boolean);
+        const stageDone = col.stagesDone.some((i) => /^done|complete/i.test(String(r[i] || "").trim()));
+        const stageTxt = String(get(r, col.stage) || "");
+        const done = !!fabDate || stageDone || /galv|ship|complete|install/i.test(stageTxt) || statuses.some((s) => DONE_RE.test(s) && !NOT_DONE_RE.test(s));
+        const qtyRaw = String(get(r, col.qty) ?? "").replace(/,/g, "").trim();
+        pieces.push({ id: base + (n > 1 ? "-" + n : ""), sheet: S.sheet, sk, line, mark, area, done, fabDate,
+          size: normSize(get(r, col.size)), len: normLen(String(get(r, col.len) || "").trim()), qty: qtyRaw === "" ? 1 : Number(qtyRaw),
+          by: String(get(r, col.by) || "").trim(), src: col.src >= 0 ? String(get(r, col.src) || "").trim() : null });
+      }
     }
-    const add = [], upd = [], same = [];
-    want.forEach((w, id) => { const p = existing.get(id); if (!p) add.push(w); else if (p.size !== w.size || Number(p.qty) !== w.qty || p.rec_date !== w.rec_date || (p.notes || "") !== w.notes || (p.by_name || "") !== w.by_name || String(p.lbs_each ?? "") !== w.lbs_each) upd.push(w); else same.push(w); });
-    const del = [...notDone].filter((id) => existing.has(id)).map((id) => existing.get(id));
-    pendingImport = { add, upd, del, file: file.name, total, done, skipped, same: same.length };
-    openImportPreview();
+    fabParsed = { file: file.name, sheets: sheets.map((S) => ({ name: S.sheet, sk: slug(S.sheet), hasDates: S.col.fabDate >= 0, hasSrc: S.col.src >= 0 })), pieces };
+    try { const r = await rest("/rest/v1/app_settings?select=data&id=eq.fab-import"); if (r && r.length) fabSettings = { ...fabSettings, ...r[0].data, cutoff: { ...(r[0].data.cutoff || {}) } }; } catch (e) { /* use defaults */ }
+    fabParsed.sheets.forEach((S) => { if (S.hasDates && !fabSettings.cutoff[S.sk]) fabSettings.cutoff[S.sk] = todayIso(); });
+    buildFabPlan(); openImportPreview();
+  }
+  // Decides, with the current options, which pieces subtract from the yard.
+  function buildFabPlan() {
+    const P = fabParsed, steelIn = new Set(allRows.filter((r) => r.item_type === "steel" && !isFab(r) && !isOut(r)).map((r) => r.size));
+    const existing = new Map(allRows.filter(isFab).map((r) => [r.id, r]));
+    const want = new Map(), ign = { notDone: 0, before: 0, other: 0, notYard: new Map(), bad: [] };
+    for (const p of P.pieces) {
+      if (!p.done) { ign.notDone++; continue; }
+      if (!p.size) { ign.bad.push(`${p.sheet} row ${p.line} (${p.mark}): no size`); continue; }
+      if (!(p.qty > 0) || Math.round(p.qty) !== p.qty) { ign.bad.push(`${p.sheet} row ${p.line} (${p.mark}): qty "${p.qty}"`); continue; }
+      const cut = fabSettings.cutoff[p.sk];
+      if (p.fabDate && cut && p.fabDate < cut) { ign.before++; continue; }
+      if (p.src != null && !/solc/i.test(p.src) && !fabSettings.includeOther) { ign.other++; continue; }
+      if (!steelIn.has(p.size) && !fabSettings.includeNotInYard) { ign.notYard.set(p.size, (ign.notYard.get(p.size) || 0) + p.qty); continue; }
+      const prev = existing.get(p.id), each = autoEach(p.size, p.len);
+      want.set(p.id, { id: p.id, rec_date: p.fabDate || (prev ? prev.rec_date : todayIso()), item_type: "steel", unit: "pcs", size: p.size, length: "", qty: -p.qty,
+        lbs_each: each == null ? "" : String(each), ref: "Fab · " + p.sheet, notes: [p.area, p.mark, p.len].filter(Boolean).join(" · "), by_name: p.by || (prev ? prev.by_name || "" : "") });
+    }
+    const add = [], upd = []; let same = 0;
+    want.forEach((w, id) => { const p = existing.get(id); if (!p) add.push(w); else if (p.size !== w.size || Number(p.qty) !== w.qty || p.rec_date !== w.rec_date || (p.notes || "") !== w.notes || (p.by_name || "") !== w.by_name || (p.ref || "") !== w.ref || String(p.lbs_each ?? "") !== w.lbs_each) upd.push(w); else same++; });
+    // Pieces from these sheets that were counted before but no longer qualify get added back to the yard.
+    const sks = new Set(P.sheets.map((S) => S.sk));
+    const del = [...existing.values()].filter((r) => !want.has(r.id) && [...sks].some((sk) => r.id.startsWith("fab-" + sk + "-")));
+    pendingImport = { add, upd, del, same, ign, done: P.pieces.filter((p) => p.done).length, total: P.pieces.length };
   }
   function openImportPreview() {
-    const P = pendingImport, steelSizes = new Set(allRows.filter((r) => r.item_type === "steel" && !isFab(r)).map((r) => r.size));
+    const P = pendingImport, F = fabParsed;
     sheetMode = "import"; stType = "steel"; render();
-    const bySize = (list, sign) => { const m = new Map(); list.forEach((w) => m.set(w.size, (m.get(w.size) || 0) + Math.abs(w.qty))); return [...m.entries()].sort((a, b) => sizeSort(a[0], b[0])).map(([s, q]) => `<tr><td class="mono">${esc(s)}${steelSizes.has(s) ? "" : ' <span class="kind out" title="This size has never been received into the yard">not in yard</span>'}</td><td class="num">${sign}${fmt(q)}</td></tr>`).join(""); };
+    const bySize = (list, sign) => { const m = new Map(); list.forEach((w) => m.set(w.size, (m.get(w.size) || 0) + Math.abs(w.qty))); return [...m.entries()].sort((a, b) => sizeSort(a[0], b[0])).map(([s, q]) => `<tr><td class="mono">${esc(s)}</td><td class="num">${sign}${fmt(q)}</td></tr>`).join(""); };
     const oh = onHandMap(allRows.filter((r) => r.item_type === "steel"));
-    const after = new Map(); [...P.add, ...P.upd].forEach((w) => { const prev = allRows.find((r) => r.id === w.id); after.set(w.size, (after.get(w.size) || 0) + w.qty - (prev && prev.size === w.size ? Number(prev.qty) : 0)); if (prev && prev.size !== w.size) after.set(prev.size, (after.get(prev.size) || 0) - Number(prev.qty)); });
-    P.del.forEach((r) => after.set(r.size, (after.get(r.size) || 0) - Number(r.qty)));
-    const short = [...after.entries()].map(([s, d]) => [s, ((oh.get(s + "||pcs") || { q: 0 }).q) + d]).filter(([, q]) => q < 0);
+    const delta = new Map(), bump = (s, d) => delta.set(s, (delta.get(s) || 0) + d);
+    P.add.forEach((w) => bump(w.size, w.qty));
+    P.upd.forEach((w) => { const prev = allRows.find((r) => r.id === w.id); bump(w.size, w.qty); if (prev) bump(prev.size, -Number(prev.qty)); });
+    P.del.forEach((r) => bump(r.size, -Number(r.qty)));
+    const short = [...delta.entries()].map(([s, d]) => [s, ((oh.get(s + "||pcs") || { q: 0 }).q) + d]).filter(([s, q]) => q < 0 && delta.get(s) < 0);
     const nothing = !P.add.length && !P.upd.length && !P.del.length;
-    $("sheetKicker").textContent = "Fab tracker · " + P.file;
-    $("sheetTitle").textContent = nothing ? "Already up to date" : "Update yard from fab tracker";
+    const subN = P.add.reduce((s, w) => s - w.qty, 0);
+    $("sheetKicker").textContent = "Fab tracker · " + F.file + " · " + F.sheets.map((S) => S.name).join(", ");
+    $("sheetTitle").textContent = nothing ? "Yard is already up to date" : "Update yard from fab tracker";
     $("delBtn").hidden = true;
     $("saveBtn").textContent = nothing ? "Close" : "Apply to yard";
+    const dated = F.sheets.filter((S) => S.hasDates), hasSrc = F.sheets.some((S) => S.hasSrc);
+    const nY = [...P.ign.notYard.entries()].sort((a, b) => b[1] - a[1]);
     $("sheetBody").innerHTML = `
       <p>${fmt(P.total)} pieces in the tracker · <strong>${fmt(P.done)} fab complete</strong>${P.same ? ` · ${fmt(P.same)} already counted` : ""}</p>
-      ${P.add.length ? `<div><div class="clab">New fab complete — will subtract from the yard (${fmt(P.add.reduce((s, w) => s - w.qty, 0))} pcs)</div><table class="lgrid"><tbody>${bySize(P.add, "−")}</tbody></table></div>` : ""}
-      ${P.upd.length ? `<div><div class="clab">Changed in the tracker — will be updated (${fmt(P.upd.length)} piece${P.upd.length === 1 ? "" : "s"})</div><p class="hint" style="margin:2px 0">${P.upd.slice(0, 12).map((w) => esc(w.notes.split(" · ")[0])).join(", ")}${P.upd.length > 12 ? "…" : ""}</p></div>` : ""}
-      ${P.del.length ? `<div><div class="clab">No longer fab complete — will be added back to the yard</div><table class="lgrid"><tbody>${bySize(P.del.map((r) => ({ size: r.size, qty: r.qty })), "+")}</tbody></table></div>` : ""}
-      ${short.length ? `<div class="pcerr">After this, more will be used than was received for: ${short.map(([s, q]) => esc(s) + " (" + fmt(q) + ")").join(", ")}. A delivery may not be logged yet, or the size is typed differently in the tracker.</div>` : ""}
-      ${P.skipped.length ? `<div class="pcerr">Skipped ${P.skipped.length} fab-complete row${P.skipped.length === 1 ? "" : "s"}: ${P.skipped.slice(0, 8).map(esc).join("; ")}${P.skipped.length > 8 ? "…" : ""}</div>` : ""}
-      ${nothing ? `<p class="hint">Nothing new to change. Pieces already counted are never subtracted twice.</p>` : `<p class="hint">Uploading the same tracker again is safe: each piece mark is only ever subtracted once.</p>`}`;
+      ${dated.length ? `<div class="ohbox"><div class="clab">Only count pieces fab complete on or after</div>${dated.map((S) => `<label style="display:flex;gap:6px;align-items:center;font-size:13px">${esc(S.name)} <input type="date" data-cut="${esc(S.sk)}" value="${esc(fabSettings.cutoff[S.sk] || "")}"></label>`).join("")}
+        <div class="hint" style="width:100%;margin:0">Pieces finished before this date were made from steel that wasn't logged in the yard yet${P.ign.before ? ` (${fmt(P.ign.before)} ignored)` : ""}. This date is saved for everyone.</div></div>` : ""}
+      ${P.add.length ? `<div><div class="clab">New fab complete — will subtract from the yard (${fmt(subN)} pcs)</div><table class="lgrid"><tbody>${bySize(P.add, "−")}</tbody></table></div>` : ""}
+      ${P.upd.length ? `<div><div class="clab">Changed in the tracker — will be updated (${fmt(P.upd.length)} piece${P.upd.length === 1 ? "" : "s"})</div></div>` : ""}
+      ${P.del.length ? `<div><div class="clab">No longer counted — will be added back to the yard</div><table class="lgrid"><tbody>${bySize(P.del.map((r) => ({ size: r.size, qty: r.qty })), "+")}</tbody></table></div>` : ""}
+      ${short.length ? `<div class="pcerr">After this, more will be used than the yard has for: ${short.map(([s, q]) => esc(s) + " (" + fmt(q) + ")").join(", ")}. A delivery may not be logged yet.</div>` : ""}
+      <details class="ign"><summary>Not counted: ${fmt(P.ign.notDone)} not fab complete${P.ign.before ? ` · ${fmt(P.ign.before)} before the start date` : ""}${P.ign.other ? ` · ${fmt(P.ign.other)} raw steel not from SOLC` : ""}${nY.length ? ` · ${fmt(nY.reduce((s, x) => s + x[1], 0))} in sizes the yard doesn't stock` : ""}${P.ign.bad.length ? ` · ${P.ign.bad.length} rows with problems` : ""}</summary>
+        ${hasSrc ? `<label class="chk"><input type="checkbox" id="incOther"${fabSettings.includeOther ? " checked" : ""}> Also count pieces whose Raw source isn't SOLC (Panel Built, SpacexAi…)</label>` : ""}
+        ${nY.length || fabSettings.includeNotInYard ? `<label class="chk"><input type="checkbox" id="incNY"${fabSettings.includeNotInYard ? " checked" : ""}> Also count sizes never received into the yard</label>${nY.length ? `<p class="hint" style="margin:2px 0 0">${nY.slice(0, 20).map(([s, q]) => `${esc(s)} (${fmt(q)})`).join(", ")}${nY.length > 20 ? "…" : ""}</p>` : ""}` : ""}
+        ${P.ign.bad.length ? `<p class="hint">${P.ign.bad.slice(0, 10).map(esc).join("<br>")}${P.ign.bad.length > 10 ? "<br>…" : ""}</p>` : ""}
+      </details>
+      <p class="hint">${nothing ? "Nothing new to change. " : ""}Uploading the same tracker again is safe: each piece is only ever subtracted once.</p>`;
+    const reopen = () => { buildFabPlan(); const open = $("sheetBody").querySelector("details.ign")?.open; openImportPreview(); if (open) $("sheetBody").querySelector("details.ign").open = true; };
+    $("sheetBody").querySelectorAll("[data-cut]").forEach((inp) => (inp.onchange = () => { if (/^\d{4}-\d{2}-\d{2}$/.test(inp.value)) { fabSettings.cutoff[inp.dataset.cut] = inp.value; reopen(); } }));
+    if ($("incOther")) $("incOther").onchange = (e) => { fabSettings.includeOther = e.target.checked; reopen(); };
+    if ($("incNY")) $("incNY").onchange = (e) => { fabSettings.includeNotInYard = e.target.checked; reopen(); };
     $("sheet").classList.add("open"); $("sheet").setAttribute("aria-hidden", "false"); $("scrim").classList.add("open");
   }
   async function applyImport() {
     const P = pendingImport; if (!P) return;
     if (!P.add.length && !P.upd.length && !P.del.length) { closeForm(); return; }
     if (hasByCol === false) { toast("One more setup step: run add-received-by.sql in Supabase, then try again.", 5000); return; }
-    const jobs = [...P.add, ...P.upd].map((w) => ["save", w]).concat(P.del.map((r) => ["del", r.id]));
+    const saves = [...P.add, ...P.upd], dels = P.del.map((r) => r.id), N = saves.length + dels.length;
     $("saveBtn").disabled = true;
     try {
       await withCode(async (code) => {
-        let doneN = 0; const N = jobs.length;
-        for (let i = 0; i < N; i += 6) {
-          await Promise.all(jobs.slice(i, i + 6).map(([k, v]) => (k === "save"
-            ? rest("/rest/v1/rpc/save_yard_item", { method: "POST", body: JSON.stringify({ p_code: code, p_row: v }) })
-            : rest("/rest/v1/rpc/delete_raw_steel", { method: "POST", body: JSON.stringify({ p_code: code, p_id: v }) })).then(() => { doneN++; $("saveBtn").textContent = `Saving ${doneN}/${N}…`; })));
+        await rest("/rest/v1/rpc/save_setting", { method: "POST", body: JSON.stringify({ p_code: code, p_id: "fab-import", p_data: fabSettings }) }).catch(() => {});
+        let doneN = 0; const tick = (k) => { doneN += k; $("saveBtn").textContent = `Saving ${fmt(doneN)}/${fmt(N)}…`; };
+        let batch = true;
+        try {
+          for (let i = 0; i < saves.length; i += 250) { const part = saves.slice(i, i + 250); await rest("/rest/v1/rpc/save_yard_items", { method: "POST", body: JSON.stringify({ p_code: code, p_rows: part }) }); tick(part.length); }
+          for (let i = 0; i < dels.length; i += 250) { const part = dels.slice(i, i + 250); await rest("/rest/v1/rpc/delete_yard_items", { method: "POST", body: JSON.stringify({ p_code: code, p_ids: part }) }); tick(part.length); }
+        } catch (e) { if (e.code === "bad_passcode" || doneN) throw e; batch = false; }
+        if (!batch) { // fast batch functions not installed yet: send one at a time
+          const jobs = saves.map((w) => ["save", w]).concat(dels.map((id) => ["del", id]));
+          for (let i = 0; i < jobs.length; i += 6) {
+            await Promise.all(jobs.slice(i, i + 6).map(([k, v]) => (k === "save"
+              ? rest("/rest/v1/rpc/save_yard_item", { method: "POST", body: JSON.stringify({ p_code: code, p_row: v }) })
+              : rest("/rest/v1/rpc/delete_raw_steel", { method: "POST", body: JSON.stringify({ p_code: code, p_id: v }) })).then(() => tick(1))));
+          }
         }
       });
       const sub = P.add.reduce((s, w) => s - w.qty, 0);
-      closeForm(); toast(`Yard updated from fab tracker: −${fmt(sub)} pcs new${P.upd.length ? `, ${P.upd.length} changed` : ""}${P.del.length ? `, ${P.del.length} added back` : ""}.`, 4500);
+      closeForm(); toast(`Yard updated from fab tracker: −${fmt(sub)} pcs new${P.upd.length ? `, ${fmt(P.upd.length)} changed` : ""}${P.del.length ? `, ${fmt(P.del.length)} added back` : ""}.`, 5000);
       pendingImport = null; await refresh();
     } catch (e) { if (e.code !== "cancelled") toast(saveErr(e)); await refresh(); }
     finally { $("saveBtn").disabled = false; }
