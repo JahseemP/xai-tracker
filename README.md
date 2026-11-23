@@ -42,3 +42,5 @@ The upload also reads the project trackers (DRY_Cooler: Piece Mark / Main Materi
 SPAM: DH / Piece mark / Size with a Fab complete date and Raw source). Only SOLC-sourced pieces in sizes the yard
 stocks, fab complete on/after the start date (saved in app_settings `fab-import`), are counted.
 Run `add-fab-batch.sql` once so big uploads save in batches.
+Drops: each fab piece is cut from the shortest bar or drop of that size that fits (or the tracker's Raw Stock Length);
+what's left (minus a 1/8" kerf) goes back to the yard as a drop if it's 5 ft or longer, otherwise it's scrap.

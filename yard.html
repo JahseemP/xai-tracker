@@ -348,6 +348,8 @@ a.btn { text-decoration:none; display:inline-flex; align-items:center; color:var
 details.ign { border:1px solid var(--line); border-radius:8px; padding:6px 10px; font-size:13px; }
 details.ign summary { cursor:pointer; color:var(--muted); }
 .chk { display:flex; gap:8px; align-items:center; margin-top:6px; font-size:13px; }
+.kind.drop { background: var(--good-soft); color: var(--good); }
+.dropl { color: var(--good); }
 .kind.fab { background: color-mix(in srgb, var(--c3) 18%, transparent); color: var(--c3); }
 .kind.in { background: var(--good-soft); color: var(--good); } .kind.out { background: var(--warn-soft); color: var(--warn); }
 .bay .bs { grid-column:1/-1; font-size:11px; color:var(--muted); }
@@ -495,6 +497,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
   const grpKey = (type, size, len, unit) => (type === "bolts" ? size + "|" + len + "|" + (unit || "pcs") : size + "||pcs");
   const grpOf = (r) => grpKey(r.item_type, r.size, r.length, unitOf(r));
   const isFab = (r) => String(r.id || "").startsWith("fab-");
+  const isDrop = (r) => isFab(r) && Number(r.qty) > 0; // usable drop (5 ft+) put back on the rack after cutting
   const labOf = (k) => { const [s, l, u] = k.split("|"); return s + (l ? " × " + l : "") + (u && u !== "pcs" ? " (" + u + ")" : ""); };
   // "9 kegs · 4 boxes · 500 pcs" — bolts come in mixed units, so totals are kept per unit
   function byUnit(list, pick) {
@@ -512,7 +515,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
       if (st.range === "today" && r.rec_date !== t) return false;
       if (st.range === "week" && r.rec_date < ws) return false;
       if (st.range === "30" && r.rec_date < d30) return false;
-      if (!opts.anyKind && st.kind === "in" && isOut(r)) return false;
+      if (!opts.anyKind && st.kind === "in" && (isOut(r) || isFab(r))) return false;
       if (!opts.anyKind && st.kind === "out" && (!isOut(r) || isFab(r))) return false;
       if (!opts.anyKind && st.kind === "fab" && !isFab(r)) return false;
       if (!opts.anySize && st.size && r.size !== st.size) return false;
@@ -521,17 +524,18 @@ details.ign summary { cursor:pointer; color:var(--muted); }
       return true;
     });
   }
-  const sumIn = (a) => a.reduce((s, r) => s + (isOut(r) ? 0 : pcs(r)), 0);
+  const sumIn = (a) => a.reduce((s, r) => s + (isOut(r) || isFab(r) ? 0 : pcs(r)), 0);
+  const sumDrop = (a) => a.reduce((s, r) => s + (isDrop(r) ? pcs(r) : 0), 0);
   const sumOut = (a) => a.reduce((s, r) => s + (isOut(r) ? pcs(r) : 0), 0);
   const wIn = (a) => a.reduce((s, r) => s + (isOut(r) ? 0 : lineLbs(r) || 0), 0);
   const wOut = (a) => a.reduce((s, r) => s + (isOut(r) ? lineLbs(r) || 0 : 0), 0);
   function onHandMap(src = rows) {
     const m = new Map();
     src.forEach((r) => {
-      const k = grpOf(r); const v = m.get(k) || { q: 0, w: 0, inn: 0, out: 0, fab: 0, lens: new Map() };
+      const k = grpOf(r); const v = m.get(k) || { q: 0, w: 0, inn: 0, out: 0, fab: 0, drop: 0, lens: new Map(), std: new Set() };
       v.q += Number(r.qty || 0); v.w += (isOut(r) ? -1 : 1) * (lineLbs(r) || 0);
-      if (isFab(r)) v.fab += pcs(r); else if (isOut(r)) v.out += pcs(r); else v.inn += pcs(r);
-      if (!isFab(r) && r.length) v.lens.set(r.length, (v.lens.get(r.length) || 0) + Number(r.qty || 0));
+      if (isDrop(r)) v.drop += pcs(r); else if (isFab(r)) v.fab += pcs(r); else if (isOut(r)) v.out += pcs(r); else { v.inn += pcs(r); if (r.length) v.std.add(r.length); }
+      if (r.length) v.lens.set(r.length, (v.lens.get(r.length) || 0) + Number(r.qty || 0));
       m.set(k, v);
     });
     return m;
@@ -539,8 +543,15 @@ details.ign summary { cursor:pointer; color:var(--muted); }
 
   function bayDetail(v) {
     const parts = [];
-    if (!isBolt(stType)) { const ls = [...v.lens.entries()].filter(([, q]) => q).sort((a, b) => lenSort(a[0], b[0])); if (ls.length) parts.push(ls.map(([l, q]) => `${esc(l)} ×${fmt(q)}`).join(" · ")); }
-    parts.push(`${fmt(v.inn)} in${v.out ? " · " + fmt(v.out) + " shipped" : ""}${v.fab ? " · " + fmt(v.fab) + " to fab" : ""}`);
+    if (!isBolt(stType)) {
+      const ls = [...v.lens.entries()].filter(([, q]) => q).sort((a, b) => lenSort(b[0], a[0]));
+      const neg = ls.filter(([, q]) => q < 0), pos = ls.filter(([, q]) => q > 0);
+      const full = pos.filter(([l]) => v.std.has(l)), drops = pos.filter(([l]) => !v.std.has(l));
+      if (neg.length) parts.push(`<span class="out">Short: ${neg.map(([l, q]) => `${esc(l)} (${fmt(q)})`).join(" · ")}</span>`);
+      if (full.length) parts.push(full.map(([l, q]) => `${esc(l)} ×${fmt(q)}`).join(" · "));
+      if (drops.length) parts.push(`<span class="dropl">Drops: ${drops.map(([l, q]) => `${esc(l)}${q !== 1 ? " ×" + fmt(q) : ""}`).join(" · ")}</span>`);
+    }
+    parts.push(`${fmt(v.inn)} in${v.out ? " · " + fmt(v.out) + " shipped" : ""}${v.fab ? " · " + fmt(v.fab) + " bars to fab" : ""}${v.drop ? " · " + fmt(v.drop) + " drops back" : ""}`);
     return parts.join("<br>");
   }
   function render() {
@@ -561,7 +572,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
     const neg = [...oh.entries()].filter(([, v]) => v.q < 0);
     const rangeName = { today: "today", week: "this week", "30": "last 30 days", all: "all dates" }[st.range];
     $("stats").innerHTML = `
-      <div><div class="l">On hand now</div><div class="v">${isBolt(stType) ? unitTxt(rows, (r) => Number(r.qty)) : fmt(onHand) + uw}</div><div class="s">${isBolt(stType) ? oh.size + " size" + (oh.size === 1 ? "" : "s") + " tracked" : fmt(sumIn(rows)) + " in − " + fmt(sumOut(rows.filter((r) => !isFab(r)))) + " shipped − " + fmt(sumOut(rows.filter(isFab))) + " fab"}</div></div>
+      <div><div class="l">On hand now</div><div class="v">${isBolt(stType) ? unitTxt(rows, (r) => Number(r.qty)) : fmt(onHand) + uw}</div><div class="s">${isBolt(stType) ? oh.size + " size" + (oh.size === 1 ? "" : "s") + " tracked" : fmt(sumIn(rows)) + " in − " + fmt(sumOut(rows.filter((r) => !isFab(r)))) + " shipped − " + fmt(sumOut(rows.filter(isFab))) + " to fab + " + fmt(sumDrop(rows)) + " drops"}</div></div>
       <div><div class="l">Weight on hand</div><div class="v">${onW ? fmt(onW / 2000, 1) + " t" : "–"}</div><div class="s">${onW ? fmt(onW) + " lbs" : "where lbs are entered"}</div></div>
       <div><div class="l">Received this week</div><div class="v in">${isBolt(stType) ? unitTxt(wk, (r) => (isOut(r) ? 0 : pcs(r)), "+") : "+" + fmt(sumIn(wk)) + uw}</div><div class="s">${shortDay(ws)} – today</div></div>
       <div><div class="l">${isBolt(stType) ? "Shipped out" : "Out (shipped + fab)"} this week</div><div class="v out">${isBolt(stType) ? unitTxt(wk, (r) => (isOut(r) ? pcs(r) : 0), "−") : "−" + fmt(sumOut(wk)) + uw}</div><div class="s">${isBolt(stType) ? shortDay(ws) + " – today" : fmt(sumOut(wk.filter((r) => !isFab(r)))) + " shipped · " + fmt(sumOut(wk.filter(isFab))) + " to fab"}</div></div>`;
@@ -579,7 +590,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
     let h = "";
     dayKeys.forEach((d) => {
       const ls = byDay.get(d).sort((a, b) => isOut(a) - isOut(b) || sizeSort(a.size, b.size) || lenSort(a.length, b.length));
-      const qi = sumIn(ls), qo = sumOut(ls);
+      const qi = sumIn(ls) + sumDrop(ls), qo = sumOut(ls);
       const qtxt = isBolt(stType)
         ? [qi ? `<span class="in">${esc(unitTxt(ls, (r) => (isOut(r) ? 0 : pcs(r)), "+"))}</span>` : "", qo ? `<span class="out">${esc(unitTxt(ls, (r) => (isOut(r) ? pcs(r) : 0), "−"))}</span>` : ""].filter(Boolean).join("<br>")
         : [qi ? `<span class="in">+${fmt(qi)}</span>` : "", qo ? `<span class="out">−${fmt(qo)}</span>` : ""].filter(Boolean).join(" ");
@@ -587,10 +598,12 @@ details.ign summary { cursor:pointer; color:var(--muted); }
       h += `<tr class="dayrow"><td colspan="3"><strong>${esc(dayLabel(d))}</strong></td><td class="num"><strong>${qtxt}</strong></td><td class="hm"></td><td class="num"><strong>${wtxt}</strong></td><td></td><td class="muted hm">${ls.length} line${ls.length === 1 ? "" : "s"}</td></tr>`;
       // Fab-tracker pieces are rolled up to one line per size per day (there can be hundreds).
       const fabG = new Map();
-      ls.filter(isFab).forEach((r) => { const k = r.size + "|" + r.ref; const g = fabG.get(k) || { size: r.size, ref: r.ref, q: 0, w: 0, hasW: false, marks: [], by: new Set() }; g.q += pcs(r); if (lineLbs(r) != null) { g.w += lineLbs(r); g.hasW = true; } g.marks.push((r.notes || "").split(" · ").slice(0, 2).join(" ")); if (r.by_name) g.by.add(r.by_name); fabG.set(k, g); });
+      ls.filter(isFab).forEach((r) => { const k = r.size + "|" + r.ref + "|" + isDrop(r); const g = fabG.get(k) || { size: r.size, ref: r.ref, drop: isDrop(r), q: 0, w: 0, hasW: false, marks: [], lens: new Map(), by: new Set() }; g.q += pcs(r); if (r.length) g.lens.set(r.length, (g.lens.get(r.length) || 0) + pcs(r)); if (lineLbs(r) != null) { g.w += lineLbs(r); g.hasW = true; } g.marks.push((r.notes || "").split(" · ").slice(0, 2).join(" ")); if (r.by_name) g.by.add(r.by_name); fabG.set(k, g); });
       [...fabG.values()].forEach((g) => {
         const ml = g.marks.length;
-        h += `<tr class="fabrow" title="${esc(g.marks.join(", "))}"><td><span class="kind fab" title="Fab complete (from fab tracker)">FAB</span></td><td class="mono">${esc(g.size)}</td><td class="muted">${ml} piece${ml === 1 ? "" : "s"}</td><td class="num out">−${fmt(g.q)}</td><td class="num hm"></td><td class="num out">${g.hasW ? "−" + fmt(g.w) : "–"}</td><td class="byc">${g.by.size ? esc([...g.by].join(", ")) : '<span class="muted">–</span>'}</td><td class="mono muted hm" style="font-size:12px">${esc(g.ref)} <span class="muted" style="font-family:var(--font-sans)">· ${esc(g.marks.slice(0, 6).join(", "))}${ml > 6 ? ` +${ml - 6} more` : ""}</span></td></tr>`;
+        const lt = [...g.lens.entries()].sort((a, b) => lenSort(b[0], a[0])).map(([l, q]) => `${l}${q !== 1 ? " ×" + q : ""}`).join(", ");
+        const sg = g.drop ? "+" : "−", cls = g.drop ? "in" : "out";
+        h += `<tr class="fabrow" title="${esc(g.marks.join(", "))}"><td><span class="kind ${g.drop ? "drop" : "fab"}" title="${g.drop ? "Drops 5 ft and longer put back on the rack" : "Bars cut for fab-complete pieces"}">${g.drop ? "DROP" : "FAB"}</span></td><td class="mono">${esc(g.size)}</td><td class="muted" style="font-size:12.5px">${esc(lt || ml + " piece" + (ml === 1 ? "" : "s"))}</td><td class="num ${cls}">${sg}${fmt(g.q)}</td><td class="num hm"></td><td class="num ${cls}">${g.hasW ? sg + fmt(g.w) : "–"}</td><td class="byc">${g.by.size ? esc([...g.by].join(", ")) : '<span class="muted">–</span>'}</td><td class="mono muted hm" style="font-size:12px">${esc(g.ref)} <span class="muted" style="font-family:var(--font-sans)">· ${esc(g.marks.slice(0, 6).join(", "))}${ml > 6 ? ` +${ml - 6} more` : ""}</span></td></tr>`;
       });
       ls.filter((r) => !isFab(r)).forEach((r) => {
         const o = isOut(r);
@@ -850,6 +863,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
           qty: first(/^qty$/, /^qty|quantity|^pcs$/),
           fabDate: first(/^fab complete$/, /fab(rication)? complete.*date|date.*fab(rication)? complete|^date complete$/),
           by: first(/completed by|fab(ricated)? by|^fitter$|^welder$/),
+          raw: first(/raw stock|stock length|raw length|bar length/),
           area: first(/^dh$|^job ?#?$|^area$|^sequence$|^seq$/),
           status: all(/status/),
           stagesDone: all(/^qc$|^galv|^ship$|^paint/),
@@ -883,7 +897,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
         const qtyRaw = String(get(r, col.qty) ?? "").replace(/,/g, "").trim();
         pieces.push({ id: base + (n > 1 ? "-" + n : ""), sheet: S.sheet, sk, line, mark, area, done, fabDate,
           size: normSize(get(r, col.size)), len: normLen(String(get(r, col.len) || "").trim()), qty: qtyRaw === "" ? 1 : Number(qtyRaw),
-          by: String(get(r, col.by) || "").trim() });
+          by: String(get(r, col.by) || "").trim(), raw: String(get(r, col.raw) || "").trim() });
       }
     }
     fabParsed = { file: file.name, sheets: sheets.map((S) => ({ name: S.sheet, sk: slug(S.sheet), hasDates: S.col.fabDate >= 0 })), pieces };
@@ -892,26 +906,72 @@ details.ign summary { cursor:pointer; color:var(--muted); }
     buildFabPlan(); openImportPreview();
   }
   // Decides, with the current options, which pieces subtract from the yard.
+  // ---- cutting: which bar each fab piece came from, and the drop left over ----
+  const DROP_MIN_FT = 5, KERF_FT = 0.125 / 12; // drops 5 ft and longer go back to the yard; 1/8" saw kerf per cut
+  function fmtFeet(ft) {
+    let eighths = Math.floor(ft * 12 * 8 + 1e-6); const f = Math.floor(eighths / 96); eighths -= f * 96;
+    const inch = Math.floor(eighths / 8), e = eighths % 8;
+    const frac = e ? { 1: "1/8", 2: "1/4", 3: "3/8", 4: "1/2", 5: "5/8", 6: "3/4", 7: "7/8" }[e] : "";
+    return !inch && !frac ? f + "'" : `${f}'-${inch}${frac ? " " + frac : ""}"`;
+  }
+  const lenKey = (l) => slug(l).slice(0, 20) || "na";
   function buildFabPlan() {
-    const P = fabParsed, steelIn = new Set(allRows.filter((r) => r.item_type === "steel" && !isFab(r) && !isOut(r)).map((r) => r.size));
-    const existing = new Map(allRows.filter(isFab).map((r) => [r.id, r]));
-    const want = new Map(), ign = { notDone: 0, before: 0, notYard: new Map(), bad: [] };
+    const P = fabParsed, sks = new Set(P.sheets.map((S) => S.sk));
+    const mine = (r) => isFab(r) && [...sks].some((sk) => r.id.startsWith("fab-" + sk + "-"));
+    const steel = allRows.filter((r) => r.item_type === "steel");
+    const steelIn = new Set(steel.filter((r) => !isFab(r) && !isOut(r)).map((r) => r.size));
+    const existing = new Map(allRows.filter(mine).map((r) => [r.id, r]));
+    // Stock on the racks before these trackers' pieces: everything except lines this upload rebuilds.
+    const inv = new Map(), stdLens = new Map();
+    const invOf = (s) => { if (!inv.has(s)) inv.set(s, new Map()); return inv.get(s); };
+    steel.filter((r) => !mine(r)).forEach((r) => { const m = invOf(r.size); m.set(r.length, (m.get(r.length) || 0) + Number(r.qty || 0)); if (!isFab(r) && !isOut(r) && r.length) { if (!stdLens.has(r.size)) stdLens.set(r.size, new Set()); stdLens.get(r.size).add(r.length); } });
+    const want = new Map(), ign = { notDone: 0, before: 0, notYard: new Map(), bad: [] }, cut = { bars: 0, drops: 0, scrapFt: 0, noLen: 0 };
+    const ok = [];
     for (const p of P.pieces) {
       if (!p.done) { ign.notDone++; continue; }
       if (!p.size) { ign.bad.push(`${p.sheet} row ${p.line} (${p.mark}): no size`); continue; }
       if (!(p.qty > 0) || Math.round(p.qty) !== p.qty) { ign.bad.push(`${p.sheet} row ${p.line} (${p.mark}): qty "${p.qty}"`); continue; }
       if (p.fabDate && p.fabDate < cutFor(p.sk)) { ign.before++; continue; }
       if (!steelIn.has(p.size) && !fabSettings.includeNotInYard) { ign.notYard.set(p.size, (ign.notYard.get(p.size) || 0) + p.qty); continue; }
-      const prev = existing.get(p.id), each = autoEach(p.size, p.len);
-      want.set(p.id, { id: p.id, rec_date: p.fabDate || (prev ? prev.rec_date : todayIso()), item_type: "steel", unit: "pcs", size: p.size, length: "", qty: -p.qty,
-        lbs_each: each == null ? "" : String(each), ref: "Fab · " + p.sheet, notes: [p.area, p.mark, p.len].filter(Boolean).join(" · "), by_name: p.by || (prev ? prev.by_name || "" : "") });
+      const prevAny = [...existing.values()].find((r) => r.id.startsWith(p.id + "~"));
+      ok.push({ ...p, date: p.fabDate || (prevAny ? prevAny.rec_date : todayIso()), prevBy: prevAny ? prevAny.by_name || "" : "" });
+    }
+    // Oldest first, so earlier pieces get first pick of bars and drops.
+    ok.sort((a, b) => a.date.localeCompare(b.date) || a.sheet.localeCompare(b.sheet) || a.line - b.line);
+    for (const p of ok) {
+      const m = invOf(p.size), need = feetOf(p.len), net = new Map(), add = (l, d) => net.set(l, (net.get(l) || 0) + d);
+      const given = p.raw && feetOf(normLen(p.raw)) != null ? normLen(p.raw) : "";
+      for (let u = 0; u < p.qty; u++) {
+        let stock = given;
+        if (!stock) {
+          const fits = [...m.entries()].filter(([l, q]) => q > 0 && l && (need == null || (feetOf(l) || 0) >= need - 1e-9)).sort((a, b) => (feetOf(a[0]) || 0) - (feetOf(b[0]) || 0));
+          if (fits.length) stock = fits[0][0];
+          else {
+            const known = [...(stdLens.get(p.size) || [])].filter((l) => need == null || (feetOf(l) || 0) >= need).sort((a, b) => feetOf(a) - feetOf(b));
+            stock = known[0] || [...m.keys()].filter(Boolean).sort((a, b) => feetOf(b) - feetOf(a))[0] || "";
+          }
+        }
+        m.set(stock, (m.get(stock) || 0) - 1); add(stock, -1);
+        const sf = feetOf(stock);
+        if (need == null || sf == null) { cut.noLen++; continue; }
+        const rem = sf - need - KERF_FT;
+        if (rem >= DROP_MIN_FT - 1e-9) { const dl = fmtFeet(rem); m.set(dl, (m.get(dl) || 0) + 1); add(dl, 1); }
+        else if (rem > 0) cut.scrapFt += rem;
+      }
+      net.forEach((q, l) => {
+        if (!q) return;
+        const each = autoEach(p.size, l), isD = q > 0;
+        if (isD) cut.drops += q; else cut.bars -= q;
+        const id = p.id + (isD ? "~d-" : "~c-") + lenKey(l || "any"), prev = existing.get(id);
+        want.set(id, { id, rec_date: p.date, item_type: "steel", unit: "pcs", size: p.size, length: l, qty: q,
+          lbs_each: each == null ? "" : String(each), ref: (isD ? "Drop · " : "Fab · ") + p.sheet,
+          notes: [p.area, p.mark, p.len ? p.qty + " × " + p.len : "", isD ? "drop ≥5'" : ""].filter(Boolean).join(" · "), by_name: p.by || p.prevBy || (prev ? prev.by_name || "" : "") });
+      });
     }
     const add = [], upd = []; let same = 0;
-    want.forEach((w, id) => { const p = existing.get(id); if (!p) add.push(w); else if (p.size !== w.size || Number(p.qty) !== w.qty || p.rec_date !== w.rec_date || (p.notes || "") !== w.notes || (p.by_name || "") !== w.by_name || (p.ref || "") !== w.ref || String(p.lbs_each ?? "") !== w.lbs_each) upd.push(w); else same++; });
-    // Pieces from these sheets that were counted before but no longer qualify get added back to the yard.
-    const sks = new Set(P.sheets.map((S) => S.sk));
-    const del = [...existing.values()].filter((r) => !want.has(r.id) && [...sks].some((sk) => r.id.startsWith("fab-" + sk + "-")));
-    pendingImport = { add, upd, del, same, ign, done: P.pieces.filter((p) => p.done).length, total: P.pieces.length };
+    want.forEach((w, id) => { const p = existing.get(id); if (!p) add.push(w); else if (p.size !== w.size || p.length !== w.length || Number(p.qty) !== w.qty || p.rec_date !== w.rec_date || (p.notes || "") !== w.notes || (p.by_name || "") !== w.by_name || (p.ref || "") !== w.ref || String(p.lbs_each ?? "") !== w.lbs_each) upd.push(w); else same++; });
+    const del = [...existing.values()].filter((r) => !want.has(r.id));
+    pendingImport = { add, upd, del, same, ign, cut, want: [...want.values()], pieces: ok.reduce((s, p) => s + p.qty, 0), done: P.pieces.filter((p) => p.done).length, total: P.pieces.length };
   }
   function openImportPreview() {
     const P = pendingImport, F = fabParsed;
@@ -924,6 +984,13 @@ details.ign summary { cursor:pointer; color:var(--muted); }
     P.del.forEach((r) => bump(r.size, -Number(r.qty)));
     const short = [...delta.entries()].map(([s, d]) => [s, ((oh.get(s + "||pcs") || { q: 0 }).q) + d]).filter(([s, q]) => q < 0 && delta.get(s) < 0);
     const nothing = !P.add.length && !P.upd.length && !P.del.length;
+    const nl = new Map(), nb = (sz, l, d) => { const k = sz + "|" + l; nl.set(k, (nl.get(k) || 0) + d); }; // net change per size + length
+    P.add.forEach((w) => nb(w.size, w.length, w.qty));
+    P.upd.forEach((w) => { const pr = allRows.find((r) => r.id === w.id); nb(w.size, w.length, w.qty); if (pr) nb(pr.size, pr.length, -Number(pr.qty)); });
+    P.del.forEach((r) => nb(r.size, r.length, -Number(r.qty)));
+    const cm = new Map();
+    nl.forEach((d, k) => { if (!d) return; const [sz, l] = k.split("|"); const v = cm.get(sz) || { used: 0, drops: 0, dl: new Map() }; if (d < 0) v.used -= d; else { v.drops += d; v.dl.set(l, d); } cm.set(sz, v); });
+    const chg = [...cm.entries()].filter(([, v]) => v.used || v.drops).sort((a, b) => sizeSort(a[0], b[0]));
     const subN = P.add.reduce((s, w) => s - w.qty, 0);
     $("sheetKicker").textContent = "Fab tracker · " + F.file + " · " + F.sheets.map((S) => S.name).join(", ");
     $("sheetTitle").textContent = nothing ? "Yard is already up to date" : "Update yard from fab tracker";
@@ -935,9 +1002,8 @@ details.ign summary { cursor:pointer; color:var(--muted); }
       <p>${fmt(P.total)} pieces in the tracker · <strong>${fmt(P.done)} fab complete</strong>${P.same ? ` · ${fmt(P.same)} already counted` : ""}</p>
       ${dated.length ? `<div class="ohbox"><div class="clab">Only count pieces fab complete on or after</div>${dated.map((S) => `<label style="display:flex;gap:6px;align-items:center;font-size:13px">${esc(S.name)} <input type="date" data-cut="${esc(S.sk)}" min="${FAB_START}" value="${esc(cutFor(S.sk))}"></label>`).join("")}
         <div class="hint" style="width:100%;margin:0">Pieces finished before 11/22/26 are never counted. You can move this date later, not earlier${P.ign.before ? ` (${fmt(P.ign.before)} ignored)` : ""}. This date is saved for everyone.</div></div>` : ""}
-      ${P.add.length ? `<div><div class="clab">New fab complete — will subtract from the yard (${fmt(subN)} pcs)</div><table class="lgrid"><tbody>${bySize(P.add, "−")}</tbody></table></div>` : ""}
-      ${P.upd.length ? `<div><div class="clab">Changed in the tracker — will be updated (${fmt(P.upd.length)} piece${P.upd.length === 1 ? "" : "s"})</div></div>` : ""}
-      ${P.del.length ? `<div><div class="clab">No longer counted — will be added back to the yard</div><table class="lgrid"><tbody>${bySize(P.del.map((r) => ({ size: r.size, qty: r.qty })), "+")}</tbody></table></div>` : ""}
+      ${chg.length ? `<div><div class="clab">Changes to the yard</div><table class="lgrid"><thead><tr><th>Size</th><th class="num">Bars used</th><th class="num">Drops ≥5' back</th><th class="num">Net</th></tr></thead><tbody>${chg.map(([sz, v]) => `<tr><td class="mono">${esc(sz)}</td><td class="num out">${v.used ? "−" + fmt(v.used) : ""}</td><td class="num in" title="${esc([...v.dl.entries()].map(([l, q]) => q + " × " + l).join(", "))}">${v.drops ? "+" + fmt(v.drops) : ""}</td><td class="num"><strong>${v.used - v.drops > 0 ? "−" : v.used - v.drops < 0 ? "+" : ""}${fmt(Math.abs(v.used - v.drops))}</strong></td></tr>`).join("")}</tbody></table>
+        <p class="hint" style="margin:4px 0 0">${fmt(P.pieces)} fab pieces cut from ${fmt(P.cut.bars)} bars · ${fmt(P.cut.drops)} drops 5' or longer go back on the rack${P.cut.scrapFt ? ` · ${fmt(P.cut.scrapFt, 1)} ft of short drops scrapped` : ""}${P.cut.noLen ? ` · ${fmt(P.cut.noLen)} without a length (no drop worked out)` : ""}.</p></div>` : ""}
       ${short.length ? `<div class="pcerr">After this, more will be used than the yard has for: ${short.map(([s, q]) => esc(s) + " (" + fmt(q) + ")").join(", ")}. A delivery may not be logged yet.</div>` : ""}
       <details class="ign"><summary>Not counted: ${fmt(P.ign.notDone)} not fab complete${P.ign.before ? ` · ${fmt(P.ign.before)} before the start date` : ""}${nY.length ? ` · ${fmt(nY.reduce((s, x) => s + x[1], 0))} in sizes the yard doesn't stock` : ""}${P.ign.bad.length ? ` · ${P.ign.bad.length} rows with problems` : ""}</summary>
         ${nY.length || fabSettings.includeNotInYard ? `<label class="chk"><input type="checkbox" id="incNY"${fabSettings.includeNotInYard ? " checked" : ""}> Also count sizes never received into the yard</label>${nY.length ? `<p class="hint" style="margin:2px 0 0">${nY.slice(0, 20).map(([s, q]) => `${esc(s)} (${fmt(q)})`).join(", ")}${nY.length > 20 ? "…" : ""}</p>` : ""}` : ""}
@@ -973,8 +1039,8 @@ details.ign summary { cursor:pointer; color:var(--muted); }
           }
         }
       });
-      const sub = P.add.reduce((s, w) => s - w.qty, 0);
-      closeForm(); toast(`Yard updated from fab tracker: −${fmt(sub)} pcs new${P.upd.length ? `, ${fmt(P.upd.length)} changed` : ""}${P.del.length ? `, ${fmt(P.del.length)} added back` : ""}.`, 5000);
+      const used = P.add.reduce((s, w) => s + (w.qty < 0 ? -w.qty : 0), 0), back = P.add.reduce((s, w) => s + (w.qty > 0 ? w.qty : 0), 0);
+      closeForm(); toast(`Yard updated from fab tracker: ${fmt(used)} bars used, ${fmt(back)} drops back on the rack${P.upd.length || P.del.length ? ` (${fmt(P.upd.length + P.del.length)} lines adjusted)` : ""}.`, 5000);
       pendingImport = null; await refresh();
     } catch (e) { if (e.code !== "cancelled") toast(saveErr(e)); await refresh(); }
     finally { $("saveBtn").disabled = false; }
