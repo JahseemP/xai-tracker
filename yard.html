@@ -583,7 +583,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
     document.querySelectorAll("[data-type]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.type === stType)));
     $("yTitle").textContent = stType === "bolts" ? "Bolts" : "Raw steel";
     $("thBy").textContent = st.kind === "fab" ? "Completed by" : st.kind === "out" ? "Shipped by" : st.kind === "in" ? "Received by" : "Received / shipped by";
-    $("feedInfo").innerHTML = !isBolt(stType) && feeds.size ? "Fab tracker last sent: " + [...feeds.values()].map((f) => { const d = new Date(f.sent); return `<strong>${esc(f.sheet)}</strong> ${isNaN(d) ? "" : esc(d.toLocaleString("en-US", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }))}${f.by ? " by " + esc(f.by) : ""}${f.via === "excel" ? " (Excel button)" : ""}`; }).join(" · ") : "";
+    $("feedInfo").innerHTML = !isBolt(stType) && feeds.size ? "Fab tracker last sent: " + [...feeds.values()].map((f) => { const d = new Date(f.sent); return `<strong>${esc(f.sheet)}</strong> ${isNaN(d) ? "" : esc(d.toLocaleString("en-US", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }))}${f.by ? " by " + esc(f.by) : ""}${f.via === "excel" ? " (Excel button)" : ""}${Number(f.v) >= 2 ? "" : ' <span class="out">— sent before the Lakeview-only rule, not counted. Send it again.</span>'}`; }).join(" · ") : "";
     $("thSize").textContent = T().sizeH; $("thLen").textContent = T().lenH;
     document.querySelectorAll("[data-range]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.range === st.range)));
     document.querySelectorAll("[data-kind]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === st.kind)));
@@ -886,6 +886,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
           fabDate: first(/^fab complete$/, /fab(rication)? complete.*date|date.*fab(rication)? complete|^date complete$/),
           by: first(/completed by|fab(ricated)? by|^fitter$|^welder$/),
           raw: first(/raw stock|stock length|raw length|bar length/),
+          shop: first(/^fab shop$/, /fab(rication)? shop|fabricated at|^shop$/),
           area: first(/^dh$|^job ?#?$|^area$|^sequence$|^seq$/),
           status: all(/status/),
           stagesDone: all(/^qc$|^galv|^ship$|^paint/),
@@ -914,15 +915,17 @@ details.ign summary { cursor:pointer; color:var(--muted); }
     });
   }
   // A feed only carries fab-complete pieces finished on/after FAB_START (or with no date).
+  // Only pieces fabricated at Lakeview use yard steel. (A sheet with no Fab shop column counts every piece.)
+  const isLakeview = (shop) => /lake\s*-?\s*view/i.test(String(shop || ""));
   function feedFromPieces(sheet, pieces, file) {
-    const done = pieces.filter((p) => p.done), keep = done.filter((p) => !p.fabDate || p.fabDate >= FAB_START);
-    return { v: 1, sheet, sent: new Date().toISOString(), via: "upload", file: file || "", total: pieces.length, done: done.length, before: done.length - keep.length,
+    const done = pieces.filter((p) => p.done), lv = done.filter((p) => p.lakeview), keep = lv.filter((p) => !p.fabDate || p.fabDate >= FAB_START);
+    return { v: 2, sheet, sent: new Date().toISOString(), via: "upload", file: file || "", total: pieces.length, done: done.length, otherShop: done.length - lv.length, before: lv.length - keep.length,
       rows: keep.map((p) => [p.area, p.mark, p.size, p.len, p.raw, p.qty, p.fabDate, p.by, p.line]) };
   }
   const fedSheet = (r, map) => isFab(r) && [...map.keys()].some((sk) => r.id.startsWith("fab-" + sk + "-"));
   function derive(feedMap) {
     const base = storedRows.filter((r) => !fedSheet(r, feedMap)); // stored lines for fed sheets are replaced by the feed
-    const pieces = [].concat(...[...feedMap.values()].map(piecesFromFeed));
+    const pieces = [].concat(...[...feedMap.values()].filter((f) => Number(f.v) >= 2).map(piecesFromFeed)); // v1 feeds were sent before the Lakeview-only rule
     return { base, ...simulateCuts(pieces, base) };
   }
   function recompute() {
@@ -1006,7 +1009,8 @@ details.ign summary { cursor:pointer; color:var(--muted); }
         const done = !!fabDate || stageDone || /galv|ship|complete|install/i.test(stageTxt) || statuses.some((s) => DONE_RE.test(s) && !NOT_DONE_RE.test(s));
         const qtyRaw = String(get(r, col.qty) ?? "").replace(/,/g, "").trim();
         pieces.push({ line, mark, area: String(get(r, col.area) || "").trim(), done, fabDate, size: String(get(r, col.size) || "").trim(), len: String(get(r, col.len) || "").trim(),
-          qty: qtyRaw === "" ? 1 : qtyRaw, by: String(get(r, col.by) || "").trim(), raw: String(get(r, col.raw) || "").trim() });
+          qty: qtyRaw === "" ? 1 : qtyRaw, by: String(get(r, col.by) || "").trim(), raw: String(get(r, col.raw) || "").trim(),
+          lakeview: col.shop < 0 || isLakeview(get(r, col.shop)) });
       }
       newFeeds.set(slug(S.sheet), feedFromPieces(S.sheet, pieces, file.name));
       sheetInfo.push({ name: S.sheet, sk: slug(S.sheet), hasDates: S.col.fabDate >= 0 });
@@ -1025,7 +1029,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
     afterAll.forEach((w, id) => { const p = before.get(id); if (!p) add.push(w); else if (p.size !== w.size || p.length !== w.length || Number(p.qty) !== Number(w.qty) || p.rec_date !== w.rec_date || (p.notes || "") !== (w.notes || "") || (p.by_name || "") !== (w.by_name || "")) upd.push(w); else same++; });
     const del = [...before.values()].filter((r) => !afterAll.has(r.id));
     const sent = F.sheets.map((S) => F.newFeeds.get(S.sk));
-    const ign = after.ign; ign.notDone = sent.reduce((s, f) => s + (f.total - f.done), 0); ign.before += sent.reduce((s, f) => s + f.before, 0);
+    const ign = after.ign; ign.notDone = sent.reduce((s, f) => s + (f.total - f.done), 0); ign.before += sent.reduce((s, f) => s + f.before, 0); ign.otherShop = sent.reduce((s, f) => s + (f.otherShop || 0), 0);
     pendingImport = { add, upd, del, same, ign, cut: after.cut, pieces: after.pieces, done: sent.reduce((s, f) => s + f.done, 0), total: sent.reduce((s, f) => s + f.total, 0),
       legacy: storedRows.filter((r) => fedSheet(r, new Map(F.sheets.map((S) => [S.sk, 1])))) };
   }
@@ -1061,7 +1065,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
       ${chg.length ? `<div><div class="clab">Changes to the yard</div><table class="lgrid"><thead><tr><th>Size</th><th class="num">Bars used</th><th class="num">Drops ≥5' back</th><th class="num">Net</th></tr></thead><tbody>${chg.map(([sz, v]) => `<tr><td class="mono">${esc(sz)}</td><td class="num out">${v.used ? "−" + fmt(v.used) : ""}</td><td class="num in" title="${esc([...v.dl.entries()].map(([l, q]) => q + " × " + l).join(", "))}">${v.drops ? "+" + fmt(v.drops) : ""}</td><td class="num"><strong>${v.used - v.drops > 0 ? "−" : v.used - v.drops < 0 ? "+" : ""}${fmt(Math.abs(v.used - v.drops))}</strong></td></tr>`).join("")}</tbody></table>
         <p class="hint" style="margin:4px 0 0">${fmt(P.pieces)} fab pieces cut from ${fmt(P.cut.bars)} bars · ${fmt(P.cut.drops)} drops 5' or longer go back on the rack${P.cut.scrapFt ? ` · ${fmt(P.cut.scrapFt, 1)} ft of short drops scrapped` : ""}${P.cut.noLen ? ` · ${fmt(P.cut.noLen)} without a length (no drop worked out)` : ""}.</p></div>` : ""}
       ${short.length ? `<div class="pcerr">After this, more will be used than the yard has for: ${short.map(([s, q]) => esc(s) + " (" + fmt(q) + ")").join(", ")}. A delivery may not be logged yet.</div>` : ""}
-      <details class="ign"><summary>Not counted: ${fmt(P.ign.notDone)} not fab complete${P.ign.before ? ` · ${fmt(P.ign.before)} before the start date` : ""}${nY.length ? ` · ${fmt(nY.reduce((s, x) => s + x[1], 0))} in sizes the yard doesn't stock` : ""}${P.ign.bad.length ? ` · ${P.ign.bad.length} rows with problems` : ""}</summary>
+      <details class="ign"><summary>Not counted: ${fmt(P.ign.notDone)} not fab complete${P.ign.otherShop ? ` · ${fmt(P.ign.otherShop)} fabricated somewhere other than Lakeview` : ""}${P.ign.before ? ` · ${fmt(P.ign.before)} before the start date` : ""}${nY.length ? ` · ${fmt(nY.reduce((s, x) => s + x[1], 0))} in sizes the yard doesn't stock` : ""}${P.ign.bad.length ? ` · ${P.ign.bad.length} rows with problems` : ""}</summary>
         ${nY.length || fabSettings.includeNotInYard ? `<label class="chk"><input type="checkbox" id="incNY"${fabSettings.includeNotInYard ? " checked" : ""}> Also count sizes never received into the yard</label>${nY.length ? `<p class="hint" style="margin:2px 0 0">${nY.slice(0, 20).map(([s, q]) => `${esc(s)} (${fmt(q)})`).join(", ")}${nY.length > 20 ? "…" : ""}</p>` : ""}` : ""}
         ${P.ign.bad.length ? `<p class="hint">${P.ign.bad.slice(0, 10).map(esc).join("<br>")}${P.ign.bad.length > 10 ? "<br>…" : ""}</p>` : ""}
       </details>

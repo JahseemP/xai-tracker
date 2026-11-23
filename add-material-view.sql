@@ -7,6 +7,6 @@ select substr(s.id, 10) as sk,
        r.v->>5 as qty, r.v->>6 as fab_date, r.v->>8 as line
 from public.app_settings s
 cross join lateral jsonb_array_elements(s.data->'rows') with ordinality as r(v, ord)
-where s.id like 'fab-feed-%';
+where s.id like 'fab-feed-%' and coalesce((s.data->>'v')::int, 1) >= 2;  -- v2 = Lakeview-only feeds
 
 grant select on public.yard_feed_rows to anon, authenticated;
