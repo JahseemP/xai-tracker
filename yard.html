@@ -382,7 +382,7 @@ a.btn { text-decoration:none; display:inline-flex; align-items:center; color:var
   </div>
   <section class="card">
     <div class="yhead"><div><div class="tabs" role="tablist" aria-label="What to show" style="margin-bottom:8px"><button role="tab" data-type="steel" aria-selected="true">Raw steel</button><button role="tab" data-type="bolts" aria-selected="false">Bolts</button></div><h2 id="yTitle">Raw steel</h2><div class="hint">Received in, shipped out and on hand, by day and size. Separate from the shipment manifests.</div></div>
-      <div class="actions"><button class="btn fabbtn" id="fabBtn" type="button" title="Upload the fab tracker (.xlsx). Pieces marked Fab complete subtract from the yard.">⇪ Upload fab tracker</button><input type="file" id="fabFile" accept=".xlsx,.xlsm,.xls,.csv" hidden><a class="btn" href="fab-tracker-template.xlsx" download>Fab tracker template</a><button class="btn" id="exportBtn" type="button">Export to Excel</button><button class="btn" id="shipBtn" type="button">− Log shipped out</button><button class="btn primary" id="logBtn" type="button">+ Log received</button></div></div>
+      <div class="actions"><button class="btn fabbtn" id="fabBtn" type="button" title="Upload the fab tracker (.xlsx). Pieces marked Fab complete subtract from the yard.">⇪ Upload fab tracker</button><input type="file" id="fabFile" accept=".xlsx,.xlsm,.xls,.csv" hidden><a class="btn" id="fabTpl" href="fab-tracker-template.xlsx" download="JP Fab Tracker.xlsx">JP Fab Tracker</a><button class="btn" id="exportBtn" type="button">Export to Excel</button><button class="btn" id="shipBtn" type="button">− Log shipped out</button><button class="btn primary" id="logBtn" type="button">+ Log received</button></div></div>
     <div class="banner show warnb" id="negWarn" role="status" hidden></div>
     <div class="ystats" id="stats"></div>
     <div class="ygrid"><div>
@@ -543,7 +543,7 @@ a.btn { text-decoration:none; display:inline-flex; align-items:center; color:var
     const uw = T().unitWord;
     document.querySelectorAll("[data-type]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.type === stType)));
     $("yTitle").textContent = stType === "bolts" ? "Bolts" : "Raw steel";
-    $("fabBtn").hidden = isBolt(stType); document.querySelector('a[href="fab-tracker-template.xlsx"]').hidden = isBolt(stType);
+    $("fabBtn").hidden = isBolt(stType); $("fabTpl").hidden = isBolt(stType);
     $("thBy").textContent = st.kind === "fab" ? "Completed by" : st.kind === "out" ? "Shipped by" : st.kind === "in" ? "Received by" : "Received / shipped by";
     $("thSize").textContent = T().sizeH; $("thLen").textContent = T().lenH;
     document.querySelectorAll("[data-range]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.range === st.range)));
