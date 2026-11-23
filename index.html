@@ -29,7 +29,7 @@
   --good: #1f7a4d; --good-soft: #e1f3e9;
   --warn: #b0451e; --warn-soft: #fbe6dd;
   --steel: #2f4a63;
-  --c1:#2f4a63; --c2:#e8930c; --c3:#4f8f8a; --c4:#9a5b8f; --c5:#7b8b3a; --c6:#c25b4a; --c7:#5b6fb0; --c8:#8b7d6b; --c9:#3d7cc9; --c10:#b8860b; --c11:#2e7d4f; --c12:#a3477a; --c13:#6b4f2a; --c14:#4a5a6a;
+  --c1:#2f4a63; --c2:#e8930c; --c3:#4f8f8a; --c4:#9a5b8f; --c5:#7b8b3a; --c6:#c25b4a; --c7:#5b6fb0; --c8:#8b7d6b; --c9:#3d7cc9; --c10:#b8860b; --c11:#2e7d4f; --c12:#a3477a; --c13:#6b4f2a; --c14:#4a5a6a; --c-new:#800020;
   --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
   --font-body: "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
@@ -41,7 +41,7 @@
     --bg: #12171d; --panel: #1b222a; --ink: #e6eaee; --muted: #97a3ae; --line: #2c3540;
     --accent: #f2a43a; --accent-ink: #f6c27a; --accent-soft: #3a2c16;
     --good: #5cc48e; --good-soft: #17352a; --warn: #f08a63; --warn-soft: #3d2219;
-    --steel: #8fb0cf; --c1:#8fb0cf; --c3:#6fc0b9; --c4:#c58bbb; --c5:#a9b95e; --c6:#e48a79; --c7:#93a4e3; --c8:#b8a993; --c9:#6aa8f0; --c10:#e0b44a; --c11:#6cc890; --c12:#e08cbc; --c13:#c9a27a; --c14:#9fb0c0;
+    --steel: #8fb0cf; --c1:#8fb0cf; --c3:#6fc0b9; --c4:#c58bbb; --c5:#a9b95e; --c6:#e48a79; --c7:#93a4e3; --c8:#b8a993; --c9:#6aa8f0; --c10:#e0b44a; --c11:#6cc890; --c12:#e08cbc; --c13:#c9a27a; --c14:#9fb0c0; --c-new:#c0506a;
     --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.25);
     color-scheme: dark;
   }
@@ -50,7 +50,7 @@
   --bg: #12171d; --panel: #1b222a; --ink: #e6eaee; --muted: #97a3ae; --line: #2c3540;
   --accent: #f2a43a; --accent-ink: #f6c27a; --accent-soft: #3a2c16;
   --good: #5cc48e; --good-soft: #17352a; --warn: #f08a63; --warn-soft: #3d2219;
-  --steel: #8fb0cf; --c1:#8fb0cf; --c3:#6fc0b9; --c4:#c58bbb; --c5:#a9b95e; --c6:#e48a79; --c7:#93a4e3; --c8:#b8a993; --c9:#6aa8f0; --c10:#e0b44a; --c11:#6cc890; --c12:#e08cbc; --c13:#c9a27a; --c14:#9fb0c0;
+  --steel: #8fb0cf; --c1:#8fb0cf; --c3:#6fc0b9; --c4:#c58bbb; --c5:#a9b95e; --c6:#e48a79; --c7:#93a4e3; --c8:#b8a993; --c9:#6aa8f0; --c10:#e0b44a; --c11:#6cc890; --c12:#e08cbc; --c13:#c9a27a; --c14:#9fb0c0; --c-new:#c0506a;
   --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.25);
   color-scheme: dark;
 }
@@ -469,11 +469,8 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
   const destList = () => { const s = new Set(manifests.map((m) => m.dest).filter(Boolean)); return [...s].sort((a, b) => { const ia = DEST_ORDER.indexOf(a), ib = DEST_ORDER.indexOf(b); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b); }); };
   // Each location keeps the same color forever, no matter which locations are on screen.
   const DEST_COLORS = { "Lakeview": "--c1", "SPAM": "--c2", "CUP4": "--c3", "Walls, MS": "--c4", "Springdale, AR": "--c5", "Houston, TX": "--c6", "Porter, TX": "--c7", "El Dorado, AR": "--c8", "Birmingham, AL": "--c9", "Memphis, TN": "--c10", "Southaven, MS": "--c1", "CUP 4": "--c3" };
-  const SPARE_COLORS = ["--c11", "--c12", "--c13", "--c14"];
   function destColor(d) {
-    if (DEST_COLORS[d]) return `var(${DEST_COLORS[d]})`;
-    let h = 0; for (const ch of String(d || "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0; // new locations: color picked from the name, so it never shifts
-    return `var(${SPARE_COLORS[h % SPARE_COLORS.length]})`;
+    return `var(${DEST_COLORS[d] || "--c-new"})`; // any location not in the list above shows burgundy
   }
   const ROUTINE = /^(DELIVER(ED)? TO|SENT TO|SHIPPED TO|Sent by night|SENT BY NIGHT|POC)/i;
   function flagNotes(m) { return String(m.notes || "").split(/;\s*/).filter((n) => n && !ROUTINE.test(n.trim())); }
