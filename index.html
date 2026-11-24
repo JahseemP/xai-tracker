@@ -569,7 +569,8 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
       let va = a[k], vb = b[k];
       if (va == null) va = -Infinity; if (vb == null) vb = -Infinity;
       const c = typeof va === "string" ? va.localeCompare(vb) : va - vb;
-      return c * dir || (b.date.localeCompare(a.date)) || a.no.localeCompare(b.no);
+      // ties (same ship date) → newest manifest first: higher manifest number, then most recently added
+      return c * dir || (b.date.localeCompare(a.date)) || b.no.localeCompare(a.no, undefined, { numeric: true }) || String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
     });
   }
   function contents(m) {
