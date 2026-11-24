@@ -202,6 +202,8 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
 .statusset { display: flex; gap: 6px; flex-wrap: wrap; }
 .statusset button { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 5px 12px; cursor: pointer; font-weight: 600; font-size: 12.5px; }
 .statusset button[aria-pressed="true"].s-Shipped { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent); }
+.recvby { font-size: 11px; color: var(--muted); margin-top: 2px; white-space: nowrap; }
+#whoDlg select, #whoDlg input { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; margin-bottom: 8px; }
 .statusset button[aria-pressed="true"].s-Received { background: var(--good-soft); color: var(--good); border-color: var(--good); }
 .statusset button[aria-pressed="true"].s-Issue { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
 .items td input { border: 1px solid var(--line); background: var(--bg); border-radius: 4px; padding: 4px 6px; width: 100%; min-width: 60px; }
@@ -422,6 +424,13 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
   <div class="pcerr" id="pcErr" role="alert"></div>
   <div class="actions" style="justify-content:flex-end"><button class="btn" id="pcCancel" type="button">Cancel</button><button class="btn primary" id="pcOk" type="button">Unlock</button></div>
 </div>
+<div class="pcdlg" id="whoDlg" role="dialog" aria-modal="true" aria-labelledby="whoTitle" hidden>
+  <h2 id="whoTitle">Who's marking this received?</h2>
+  <p class="hint" id="whoHint">Your name is saved with the status so everyone can see who did it.</p>
+  <select id="whoSel" aria-label="Your name"></select>
+  <input id="whoOther" type="text" placeholder="Your name" autocomplete="off" aria-label="Your name" hidden>
+  <div class="actions" style="justify-content:flex-end"><button class="btn" id="whoCancel" type="button">Cancel</button><button class="btn primary" id="whoOk" type="button">Mark received</button></div>
+</div>
 <div id="printArea" aria-hidden="true"></div>
 <div class="toast" id="toast" role="status"></div>
 
@@ -463,7 +472,7 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
     const items = (Array.isArray(d.items) ? d.items : []).map(itemObj);
     let qty = 0, wt = 0, hasWt = false;
     items.forEach((it) => { qty += it.qty || 0; if (it.wt != null) { hasWt = true; wt += it.basis === "T" ? it.wt : it.wt * (it.qty || 1); } });
-    return { id, no: d.no || id, date: d.date || "", dest: d.dest || "", addr: d.addr || "", src: d.src || "", pages: d.pages || "", notes: d.notes || "", status: STATUSES.includes(d.status) ? d.status : "Shipped", recvDate: d.recvDate || "", shippedBy: d.shippedBy || "", createdAt: d._createdAt || "", updatedAt: d._updatedAt || "", items, raw: d, lines: items.length, qty, wt: hasWt ? wt : null };
+    return { id, no: d.no || id, date: d.date || "", dest: d.dest || "", addr: d.addr || "", src: d.src || "", pages: d.pages || "", notes: d.notes || "", status: STATUSES.includes(d.status) ? d.status : "Shipped", recvDate: d.recvDate || "", recvBy: d.recvBy || "", recvAt: d.recvAt || "", statusBy: d.statusBy || "", statusAt: d.statusAt || "", shippedBy: d.shippedBy || "", createdAt: d._createdAt || "", updatedAt: d._updatedAt || "", items, raw: d, lines: items.length, qty, wt: hasWt ? wt : null };
   }
   const destList = () => { const s = new Set(manifests.map((m) => m.dest).filter(Boolean)); return [...s].sort((a, b) => { const ia = DEST_ORDER.indexOf(a), ib = DEST_ORDER.indexOf(b); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b); }); };
   // Each location keeps the same color forever, no matter which locations are on screen.
@@ -486,7 +495,7 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
     return manifests.filter((m) => {
       if (state.dests.size && !state.dests.has(m.dest)) return false;
       if (!q) return true;
-      if (norm(m.no).includes(q) || m.shippedBy.toLowerCase().includes(qRaw) || m.addr.toLowerCase().includes(qRaw) || m.notes.toLowerCase().includes(qRaw)) return true;
+      if (norm(m.no).includes(q) || m.shippedBy.toLowerCase().includes(qRaw) || m.recvBy.toLowerCase().includes(qRaw) || m.addr.toLowerCase().includes(qRaw) || m.notes.toLowerCase().includes(qRaw)) return true;
       return m.items.some((it) => norm(it.piece).includes(q) || norm(pieceKey(it.piece, it.pc)).includes(q) || norm(it.matid).includes(q) || it.desc.toLowerCase().includes(qRaw));
     });
   }
@@ -606,7 +615,7 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
       <td><span class="destcell"><i style="background:${destColor(m.dest)}"></i>${esc(m.dest)}</span></td>
       <td class="num">${m.lines}</td><td class="num">${fmt(m.qty)}</td><td class="num">${m.wt == null ? '<span class="muted">–</span>' : fmt(m.wt)}</td>
       <td>${contents(m)}</td>
-      <td><span class="pill ${m.status.toLowerCase()}">${m.status}</span></td>
+      <td><span class="pill ${m.status.toLowerCase()}" title="${esc(m.status === "Received" && m.recvBy ? "Received by " + m.recvBy + (m.recvAt ? " · " + fmtStamp(m.recvAt) : "") : m.statusBy ? m.status + " by " + m.statusBy : "")}">${m.status}</span>${m.status === "Received" && m.recvBy ? `<div class="recvby">${esc(m.recvBy)}</div>` : m.status === "Issue" && m.statusBy ? `<div class="recvby">${esc(m.statusBy)}</div>` : ""}</td>
       <td class="added muted" title="${esc(fmtStamp(m.createdAt))}">${m.createdAt ? esc(fmtStamp(m.createdAt, true)) : "–"}</td></tr>`).join("")
       : `<tr><td colspan="10" class="empty">Nothing matches “${esc(state.q)}”.</td></tr>`;
     $("logCount").textContent = `Showing ${list.length} of ${manifests.length} manifests`;
@@ -739,7 +748,7 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
         <div class="field"><span class="lab">Destination</span><div class="ro"><span class="destcell"><i style="background:${destColor(m.dest)}"></i>${esc(m.dest)}</span></div></div>
         <div class="field wide"><span class="lab">Address on paperwork</span><div class="ro">${esc(m.addr) || '<span class="muted">–</span>'}</div></div>
         <div class="field"><span class="lab">Status</span>${statusBtns}</div>
-        <div class="field"><span class="lab">Received</span><div class="ro">${m.recvDate ? fmtDate(m.recvDate) : m.status === "Received" ? '<span class="muted">Date not recorded</span>' : '<span class="muted">Not yet</span>'}</div></div>
+        <div class="field"><span class="lab">Received</span><div class="ro">${m.recvDate ? fmtDate(m.recvDate) : m.status === "Received" ? '<span class="muted">Date not recorded</span>' : '<span class="muted">Not yet</span>'}${m.status === "Received" || m.recvBy ? `<br>${m.recvBy ? `by <strong>${esc(m.recvBy)}</strong>${m.recvAt ? ` <span class="muted">· ${esc(fmtStamp(m.recvAt))}</span>` : ""}` : '<span class="muted">by — not recorded</span>'}` : ""}${m.statusBy && m.status !== "Received" ? `<br><span class="muted">Marked ${esc(m.status)} by ${esc(m.statusBy)}${m.statusAt ? " · " + esc(fmtStamp(m.statusAt)) : ""}</span>` : ""}</div></div>
         ${cur.raw && (cur.raw.shippedBy || cur.raw.carrier) ? `<div class="field"><span class="lab">Shipped by / carrier</span><div class="ro">${esc([cur.raw.shippedBy, cur.raw.carrier].filter(Boolean).join(" · "))}</div></div>` : ""}
         <div class="field"><span class="lab">Added to tracker</span><div class="ro">${cur.createdAt ? esc(fmtStamp(cur.createdAt)) : '<span class="muted">Not recorded</span>'}${cur.updatedAt && cur.createdAt && new Date(cur.updatedAt) - new Date(cur.createdAt) > 60000 ? `<br><span class="muted">Last changed ${esc(fmtStamp(cur.updatedAt))}</span>` : ""}</div></div>
         <div class="field"><span class="lab">Totals</span><div class="ro">${cur.lines} lines · ${fmt(qty)} pcs${cur.wt != null ? ` · ${fmt(cur.wt)} lbs` : ""}</div></div>
@@ -1104,7 +1113,8 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
     if (!draft.no) { toast("Enter a manifest number first."); $("f-no") && $("f-no").focus(); return; }
     if (!draft.date) { toast("Enter the date shipped."); return; }
     const items = draft.items.filter((it) => it.piece || it.desc || it.matid);
-    const keep = {}; if (!isNew && cur && cur.raw) ["job", "project", "shippedBy", "email", "carrier", "departure", "flagCleared"].forEach((k) => { if (cur.raw[k]) keep[k] = cur.raw[k]; });
+    const keep = {}; if (!isNew && cur && cur.raw) ["job", "project", "shippedBy", "email", "carrier", "departure", "flagCleared", "recvBy", "recvAt", "statusBy", "statusAt"].forEach((k) => { if (cur.raw[k]) keep[k] = cur.raw[k]; });
+    ["recvBy", "recvAt", "statusBy", "statusAt"].forEach((k) => { if (draft[k]) keep[k] = draft[k]; });
     const body = { ...keep, no: draft.no, date: draft.date, dest: draft.dest, addr: draft.addr, src: draft.src, pages: draft.pages || "", notes: draft.notes, status: draft.status, recvDate: draft.recvDate || "", items: items.map((it) => { const o = { ...it }; if (o.wt != null && !o.basis) o.basis = "E"; return itemArr(o); }) };
     const id = isNew ? docId(draft.no) : cur.id;
     $("saveBtn").disabled = true;
@@ -1115,10 +1125,38 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
       const prevM = byId.get(id); const local = enrich(id, { ...body, _createdAt: (prevM && prevM.createdAt) || new Date().toISOString(), _updatedAt: new Date().toISOString() }); byId.set(id, local); cur = local; renderSheet();
     } catch (e) { handleWriteErr(e); } finally { $("saveBtn").disabled = !canWrite; }
   }
+  // Asks who is changing the status (remembered on this device) so the manifest shows who marked it.
+  const WHO_KEY = "xai-tracker-who";
+  function askWho(status) {
+    return new Promise((resolve) => {
+      let last = ""; try { last = localStorage.getItem(WHO_KEY) || ""; } catch (e) { /* storage blocked */ }
+      const names = [...new Set(SHIPPERS.concat(manifests.map((m) => m.recvBy).filter(Boolean)))];
+      const other = last && !names.includes(last);
+      $("whoTitle").textContent = status === "Received" ? "Who's marking this received?" : `Who's marking this ${status === "Issue" ? "as an issue" : status.toLowerCase()}?`;
+      $("whoOk").textContent = status === "Received" ? "Mark received" : "Mark " + status.toLowerCase();
+      $("whoSel").innerHTML = `<option value="">Choose your name…</option>` + names.map((n) => `<option${n === last ? " selected" : ""}>${esc(n)}</option>`).join("") + `<option value="__other"${other ? " selected" : ""}>Someone else…</option>`;
+      $("whoOther").value = other ? last : ""; $("whoOther").hidden = !other;
+      $("whoDlg").hidden = false; $("pcScrim").classList.add("open"); setTimeout(() => $("whoSel").focus(), 30);
+      $("whoSel").onchange = () => { const o = $("whoSel").value === "__other"; $("whoOther").hidden = !o; if (o) $("whoOther").focus(); };
+      const done = (v) => { $("whoDlg").hidden = true; $("pcScrim").classList.remove("open"); $("whoOk").onclick = $("whoCancel").onclick = null; if (v) { try { localStorage.setItem(WHO_KEY, v); } catch (e) { /* storage blocked */ } } resolve(v); };
+      $("whoOk").onclick = () => { const v = $("whoSel").value === "__other" ? $("whoOther").value.trim() : $("whoSel").value; if (!v) { toast("Pick your name first."); return; } done(v); };
+      $("whoCancel").onclick = () => done(null);
+      $("whoOther").onkeydown = (e) => { if (e.key === "Enter") $("whoOk").click(); };
+    });
+  }
   async function setStatus(s) {
-    if (editing) { readDraft(); draft.status = s; if (s === "Received" && !draft.recvDate) draft.recvDate = todayIso(); renderSheet(); return; }
+    if (editing) {
+      readDraft(); if (draft.status === s) return;
+      const who = await askWho(s); if (!who) return;
+      draft.status = s; draft.statusBy = who; draft.statusAt = new Date().toISOString();
+      if (s === "Received") { if (!draft.recvDate) draft.recvDate = todayIso(); draft.recvBy = who; draft.recvAt = draft.statusAt; }
+      renderSheet(); return;
+    }
     if (!cur || cur.status === s) return;
-    const patch = { status: s }; if (s === "Received" && !cur.recvDate) patch.recvDate = todayIso();
+    const who = await askWho(s); if (!who) return;
+    const now = new Date().toISOString();
+    const patch = { status: s, statusBy: who, statusAt: now };
+    if (s === "Received") { patch.recvBy = who; patch.recvAt = now; if (!cur.recvDate) patch.recvDate = todayIso(); }
     try { await db.collection("manifests").doc(cur.id).update(patch); Object.assign(cur, patch); renderSheet(); toast(`Marked ${s}.`); } catch (e) { handleWriteErr(e); }
   }
   async function del() {
@@ -1406,7 +1444,7 @@ td.added { white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular
     if (!window.XLSX) return exportCsv();
     const list = sortList(manifests).slice().reverse();
     const dt = (iso) => { if (!iso) return null; const [y, m, d] = iso.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d, 12)); };
-    const mRows = list.map((m) => ({ "Manifest No.": m.no, "Date Shipped": dt(m.date), "Destination": m.dest, "Address": m.addr, "Status": m.status, "Received Date": dt(m.recvDate), "Line Items": m.lines, "Pieces": m.qty, "Weight (lbs)": m.wt, "Shipped By": (m.raw && m.raw.shippedBy) || "", "Carrier": (m.raw && m.raw.carrier) || "", "Paperwork": m.src, "PDF Page(s)": m.pages, "Added": m.createdAt ? new Date(m.createdAt) : null, "Notes": m.notes }));
+    const mRows = list.map((m) => ({ "Manifest No.": m.no, "Date Shipped": dt(m.date), "Destination": m.dest, "Address": m.addr, "Status": m.status, "Received Date": dt(m.recvDate), "Received By": m.recvBy || "", "Line Items": m.lines, "Pieces": m.qty, "Weight (lbs)": m.wt, "Shipped By": (m.raw && m.raw.shippedBy) || "", "Carrier": (m.raw && m.raw.carrier) || "", "Paperwork": m.src, "PDF Page(s)": m.pages, "Added": m.createdAt ? new Date(m.createdAt) : null, "Notes": m.notes }));
     const pRows = [];
     list.forEach((m) => m.items.forEach((it) => pRows.push({ "Manifest No.": m.no, "Date Shipped": dt(m.date), "Destination": m.dest, "Piece No.": it.piece, "PC": it.pc, "Qty": it.qty, "Description": it.desc, "Material ID": it.matid, "Weight (lbs)": it.wt, "Weight Basis": it.basis === "E" ? "Each" : it.basis === "T" ? "Line total" : "", "Status": m.status, "Notes": it.note })));
     const wb = XLSX.utils.book_new();
