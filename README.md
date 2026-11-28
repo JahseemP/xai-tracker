@@ -55,3 +55,12 @@ Uploading a tracker file in the app saves the same kind of feed.
 **Refresh material** (same workbook) reads `raw_steel` and the `yard_feed_rows` view (run `add-material-view.sql` once)
 as CSV, replays every fab-complete piece with the app's cutting rules, then fills the tracker's Material column for
 unfinished pieces top to bottom (✔ bar/drop it would use, ✖ short). Runs on open, every 5 minutes, and after edits.
+
+## Fab Tracker page
+
+`fab.html` (+ `fab.js`, `yardcore.js`) is a spreadsheet of pieces per project, stored in `fab_pieces`
+(run `add-fab-tracker.sql` once). Cells are edited like Excel (type, drag-select, Ctrl+C/V blocks from Excel,
+Ctrl+D, Ctrl+Z, right-click insert/delete rows; pasting with the header row lines columns up by name and matches
+existing pieces by DH + piece mark). Status and Material fill themselves in: Material replays every fab-complete
+piece (Excel feeds + this page) against the yard with the same cutting rules, then hands out bars to unfinished
+pieces, ★ active first. Lakeview pieces fab complete on/after 11/22/26 subtract from the Yard Inventory page.

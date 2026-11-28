@@ -389,7 +389,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
           <button class="btn fabbtn" id="fabBtn" type="button" role="menuitem" title="Upload the fab tracker (.xlsx). Pieces marked Fab complete subtract from the yard.">⇪ Upload fab tracker</button>
           <a class="btn" id="fabTpl" role="menuitem" href="fab-tracker.xlsm" download="JP Fab Tracker.xlsm">JP Fab Tracker</a>
         </div></details><input type="file" id="fabFile" accept=".xlsx,.xlsm,.xls,.ods,.csv" hidden>
-      <nav class="pagenav" aria-label="Pages"><a href="./">Shipments</a><a href="yard.html" aria-current="page">Yard Inventory</a></nav>
+      <nav class="pagenav" aria-label="Pages"><a href="./">Shipments</a><a href="yard.html" aria-current="page">Yard Inventory</a><a href="fab.html">Fab Tracker</a></nav>
     </div>
   </header>
   <div class="toolbar">
@@ -583,7 +583,8 @@ details.ign summary { cursor:pointer; color:var(--muted); }
     document.querySelectorAll("[data-type]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.type === stType)));
     $("yTitle").textContent = stType === "bolts" ? "Bolts" : "Raw steel";
     $("thBy").textContent = st.kind === "fab" ? "Completed by" : st.kind === "out" ? "Shipped by" : st.kind === "in" ? "Received by" : "Received / shipped by";
-    $("feedInfo").innerHTML = !isBolt(stType) && feeds.size ? "Fab tracker last sent: " + [...feeds.values()].map((f) => { const d = new Date(f.sent); return `<strong>${esc(f.sheet)}</strong> ${isNaN(d) ? "" : esc(d.toLocaleString("en-US", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }))}${f.by ? " by " + esc(f.by) : ""}${f.via === "excel" ? " (Excel button)" : ""}${Number(f.v) >= 2 ? "" : ' <span class="out">— sent before the Lakeview-only rule, not counted. Send it again.</span>'}`; }).join(" · ") : "";
+    const appInfo = !isBolt(stType) && appFab.length ? `Fab Tracker page: <strong>${fmt(appFab.length)}</strong> Lakeview pieces fab complete since 11/22` : "";
+    $("feedInfo").innerHTML = (appInfo ? appInfo + (feeds.size ? " · " : "") : "") + (!isBolt(stType) && [...feeds.values()].some((f) => !f.retired) ? "Fab tracker last sent: " + [...feeds.values()].filter((f) => !f.retired).map((f) => { const d = new Date(f.sent); return `<strong>${esc(f.sheet)}</strong> ${isNaN(d) ? "" : esc(d.toLocaleString("en-US", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }))}${f.by ? " by " + esc(f.by) : ""}${f.via === "excel" ? " (Excel button)" : ""}${Number(f.v) >= 2 ? "" : ' <span class="out">— sent before the Lakeview-only rule, not counted. Send it again.</span>'}`; }).join(" · ") : "");
     $("thSize").textContent = T().sizeH; $("thLen").textContent = T().lenH;
     document.querySelectorAll("[data-range]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.range === st.range)));
     document.querySelectorAll("[data-kind]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === st.kind)));
@@ -902,7 +903,7 @@ details.ign summary { cursor:pointer; color:var(--muted); }
   // "Update app" button in the Excel tracker, or by uploading the file here. The yard's FAB and DROP lines are
   // worked out from them every time the page loads, so a tracker can be sent again and again without double counting.
   const FEED_PREFIX = "fab-feed-";
-  let storedRows = [], feeds = new Map(), fabSettingsBefore = null;
+  let storedRows = [], feeds = new Map(), fabSettingsBefore = null, appFab = [];
   function piecesFromFeed(f) {
     const sk = slug(f.sheet), seen = new Map();
     return (f.rows || []).filter((x) => x && x[1]).map((x) => {
@@ -925,11 +926,11 @@ details.ign summary { cursor:pointer; color:var(--muted); }
   const fedSheet = (r, map) => isFab(r) && [...map.keys()].some((sk) => r.id.startsWith("fab-" + sk + "-"));
   function derive(feedMap) {
     const base = storedRows.filter((r) => !fedSheet(r, feedMap)); // stored lines for fed sheets are replaced by the feed
-    const pieces = [].concat(...[...feedMap.values()].filter((f) => Number(f.v) >= 2).map(piecesFromFeed)); // v1 feeds were sent before the Lakeview-only rule
+    const pieces = [].concat(...[...feedMap.values()].filter((f) => Number(f.v) >= 2).map(piecesFromFeed), appFab); // v1 feeds were sent before the Lakeview-only rule; appFab = Fab Tracker page
     return { base, ...simulateCuts(pieces, base) };
   }
   function recompute() {
-    if (!feeds.size) { allRows = storedRows.slice(); return; }
+    if (!feeds.size && !appFab.length) { allRows = storedRows.slice(); return; }
     const d = derive(feeds); allRows = d.base.concat(d.lines);
   }
 
@@ -1162,6 +1163,13 @@ details.ign summary { cursor:pointer; color:var(--muted); }
         (fs || []).forEach((x) => { if (x.id === "fab-import") { if (!fabSettingsBefore) fabSettings = { ...fabSettings, ...x.data, cutoff: { ...(x.data.cutoff || {}) } }; } else if (x.data && x.data.sheet) m.set(x.id.slice(FEED_PREFIX.length), x.data); });
         feeds = m;
       } catch (e) { /* keep the feeds we had */ }
+      // fab-complete pieces from the Fab Tracker page (Lakeview only, on/after FAB_START)
+      try {
+        let fp = [];
+        for (let off = 0; off < 200000; off += 1000) { const part = await rest(`/rest/v1/fab_pieces?select=id,project,sort,data&data->>fabComplete=gte.${FAB_START}&order=project,sort&limit=1000&offset=${off}`); fp = fp.concat(part || []); if (!part || part.length < 1000) break; }
+        appFab = fp.filter((x) => x.data && x.data.mark && x.data.size && isLakeview(x.data.shop)).map((x) => ({ id: "fab-app-" + slug(x.project) + "-" + x.id, sheet: x.project, sk: "app-" + slug(x.project), line: Number(x.sort) || 0, mark: String(x.data.mark), area: String(x.data.dh || ""), done: true,
+          fabDate: cellDate(x.data.fabComplete), size: normSize(x.data.size), len: normLen(String(x.data.length || "")), qty: 1, by: "", raw: "" }));
+      } catch (e) { /* table not set up yet */ }
       recompute();
       loaded = true; setSync(true, "Live · refreshes every 30 seconds");
     } catch (e) {
